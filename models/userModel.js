@@ -1,89 +1,91 @@
 // models/userModel.js
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-
-// Schéma pour les notifications push (Pépite GTY Express)
-const pushSubscriptionSchema = new mongoose.Schema({
-  endpoint: { type: String, required: true },
-  keys: {
-    p256dh: { type: String, required: true },
-    auth: { type: String, required: true },
-  },
-});
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const userSchema = mongoose.Schema(
   {
-    name: { 
-      type: String, 
-      required: [true, 'Le nom est obligatoire'],
-      trim: true 
+    name: {
+      type: String,
+      required: true,
     },
-    email: { 
-      type: String, 
-      required: [true, "L'email est obligatoire"], 
+    email: {
+      type: String,
+      required: true,
       unique: true,
-      lowercase: true,
-      trim: true 
     },
-    phone: { 
-      type: String, 
-      required: [true, 'Le numéro de téléphone est obligatoire'], 
+    password: {
+      type: String,
+      required: true,
+    },
+    phone: {
+      type: String,
+      required: true,
       unique: true,
-      trim: true 
-    },
-    password: { 
-      type: String, 
-      required: [true, 'Le mot de passe est obligatoire'] 
-    },
-    profilePicture: { 
-      type: String, 
-      default: '' 
     },
     role: {
       type: String,
-      required: true,
-      enum: ['rider', 'driver', 'admin', 'superAdmin'],
-      default: 'rider',
+      enum: ['rider', 'driver', 'admin'],
+      default: 'rider', // Par défaut c'est un client
     },
-    status: {
+    
+    // --- INFOS SPÉCIFIQUES CHAUFFEUR ---
+    driverId: {
       type: String,
-      required: true,
-      enum: ['active', 'suspended', 'banned'],
-      default: 'active',
+      unique: true,
+      sparse: true, // Technique : Permet aux clients d'avoir ce champ vide sans bug
+      trim: true,
     },
-    // Logique Portefeuille & Yély Crédit
+    // Nouveauté : On prépare le terrain pour les infos voiture
+    vehicleInfo: {
+      model: { type: String }, // Ex: Toyota Corolla
+      plate: { type: String }, // Ex: 1234 XY 01
+      color: { type: String }, // Ex: Jaune
+    },
+    lastDailyFeePaid: {
+      type: Date,
+      default: null,
+    },
     wallet: {
       type: Number,
       default: 0,
-      required: true,
     },
-    // Logique Chauffeur (Tracking GPS)
+    // ------------------------------------
+
+    rating: {
+      type: Number,
+      default: 5,
+    },
     isOnline: {
       type: Boolean,
       default: false,
     },
-    currentLocation: {
+    currentRide: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Ride',
+      default: null,
+    },
+    socketId: {
+      type: String,
+    },
+    location: {
       type: {
         type: String,
         enum: ['Point'],
-        default: 'Point',
       },
       coordinates: {
         type: [Number], // [Longitude, Latitude]
-        index: '2dsphere',
       },
     },
-    // Sécurité et Notifications
-    pushSubscriptions: [pushSubscriptionSchema],
-    resetPasswordToken: String,
-    resetPasswordExpire: Date,
   },
   {
     timestamps: true,
   }
 );
 
-// Hachage automatique du mot de passe avant sauvegarde
+userSchema.methods.matchPassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
+
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     next();
@@ -92,10 +94,6 @@ userSchema.pre('save', async function (next) {
   this.password = await bcrypt.hash(this.password, salt);
 });
 
-// Méthode pour comparer les mots de passe
-userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
-};
-
 const User = mongoose.model('User', userSchema);
-export default User;
+
+module.exports = User;

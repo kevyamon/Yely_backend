@@ -1,99 +1,70 @@
 // models/userModel.js
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
+
+const pushSubscriptionSchema = new mongoose.Schema({
+  endpoint: { type: String, required: true },
+  keys: {
+    p256dh: { type: String, required: true },
+    auth: { type: String, required: true },
+  },
+});
 
 const userSchema = mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: true,
-    },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    password: {
-      type: String,
-      required: true,
-    },
-    phone: {
-      type: String,
-      required: true,
-      unique: true,
-    },
-    role: {
-      type: String,
-      enum: ['rider', 'driver', 'admin'],
-      default: 'rider', // Par défaut c'est un client
-    },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    phone: { type: String, required: true, unique: true, trim: true },
+    password: { type: String, required: true },
     
-    // --- INFOS SPÉCIFIQUES CHAUFFEUR ---
+    // --- NOUVEAUTÉ : ID TAXI & INFOS VOITURE ---
     driverId: {
       type: String,
       unique: true,
-      sparse: true, // Technique : Permet aux clients d'avoir ce champ vide sans bug
-      trim: true,
+      sparse: true, // Permet aux clients d'avoir ce champ vide sans bug
+      trim: true
     },
-    // Nouveauté : On prépare le terrain pour les infos voiture
     vehicleInfo: {
-      model: { type: String }, // Ex: Toyota Corolla
-      plate: { type: String }, // Ex: 1234 XY 01
-      color: { type: String }, // Ex: Jaune
+      model: { type: String }, // ex: Toyota Corolla
+      plate: { type: String }, // ex: 1234 XY 01
+      color: { type: String }, // ex: Jaune
     },
-    lastDailyFeePaid: {
-      type: Date,
-      default: null,
-    },
-    wallet: {
-      type: Number,
-      default: 0,
-    },
-    // ------------------------------------
+    // -------------------------------------------
 
-    rating: {
-      type: Number,
-      default: 5,
-    },
-    isOnline: {
-      type: Boolean,
-      default: false,
-    },
-    currentRide: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Ride',
-      default: null,
-    },
-    socketId: {
+    profilePicture: { type: String, default: '' },
+    role: {
       type: String,
+      enum: ['rider', 'driver', 'admin', 'superAdmin'],
+      default: 'rider',
     },
-    location: {
-      type: {
-        type: String,
-        enum: ['Point'],
-      },
-      coordinates: {
-        type: [Number], // [Longitude, Latitude]
-      },
+    status: {
+      type: String,
+      enum: ['active', 'suspended', 'banned'],
+      default: 'active',
     },
+    wallet: { type: Number, default: 0 },
+    isOnline: { type: Boolean, default: false },
+    currentLocation: {
+      type: { type: String, enum: ['Point'], default: 'Point' },
+      coordinates: { type: [Number], index: '2dsphere' },
+    },
+    pushSubscriptions: [pushSubscriptionSchema],
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
+
+// Hachage du mot de passe
+userSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) { next(); }
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+});
 
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) {
-    next();
-  }
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-});
-
 const User = mongoose.model('User', userSchema);
-
-module.exports = User;
+export default User;

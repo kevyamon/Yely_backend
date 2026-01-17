@@ -1,14 +1,14 @@
 // controllers/userController.js
-const asyncHandler = require('../middleware/asyncHandler');
-const User = require('../models/userModel');
-const generateToken = require('../utils/generateToken');
+import asyncHandler from '../middleware/asyncHandler.js';
+import User from '../models/userModel.js';
+import generateToken from '../utils/generateToken.js';
 
-// @desc    Auth user & get token
-// @route   POST /api/users/login
-// @access  Public
+// ... (Garde la fonction authUser telle quelle) ...
 const authUser = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-  const user = await User.findOne({ email });
+  const { emailOrPhone, password } = req.body;
+  const user = await User.findOne({
+    $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+  });
 
   if (user && (await user.matchPassword(password))) {
     generateToken(res, user._id);
@@ -16,65 +16,70 @@ const authUser = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
-      driverId: user.driverId,
+      driverId: user.driverId, // On renvoie l'ID Taxi au login !
       wallet: user.wallet,
     });
   } else {
     res.status(401);
-    throw new Error('Email ou mot de passe incorrect');
+    throw new Error('Email/Téléphone ou mot de passe invalide');
   }
 });
 
-// @desc    Register a new user
-// @route   POST /api/users
-// @access  Public
+// --- MODIFICATION MAJEURE ICI ---
 const registerUser = asyncHandler(async (req, res) => {
-  // On récupère aussi les infos véhicule (vehicleInfo) si envoyées
-  const { name, email, phone, password, role, vehicleInfo } = req.body;
+  // On récupère aussi les infos véhicule envoyées par le Frontend
+  const { name, email, phone, password, role, vehicleModel, vehiclePlate, vehicleColor } = req.body;
 
-  const userExists = await User.findOne({ email });
+  const userExists = await User.findOne({ $or: [{ email }, { phone }] });
   if (userExists) {
     res.status(400);
-    throw new Error('Cet utilisateur existe déjà');
+    throw new Error('Un utilisateur avec cet email ou ce numéro existe déjà');
   }
 
-  // --- LOGIQUE SPÉCIALE CHAUFFEUR ---
+  // PRÉPARATION DES DONNÉES SPÉCIALES CHAUFFEUR
   let driverId = null;
+  let vehicleInfo = null;
   let initialWallet = 0;
-  let finalVehicleInfo = {};
 
-  // Si l'utilisateur a COCHÉ "Chauffeur" sur le site (role === 'driver')
   if (role === 'driver') {
-    // 1. Génération ID TAXI (BORIS + 0909)
-    const firstName = name.trim().split(' ')[0].toUpperCase(); // Prend le premier nom en MAJ
-    const cleanPhone = phone.replace(/\D/g, ''); // Garde que les chiffres
-    const phonePrefix = cleanPhone.substring(0, 4); // Les 4 premiers chiffres
-    driverId = `${firstName}${phonePrefix}`;
+    // 1. GÉNÉRATION AUTOMATIQUE DU ID TAXI (Immuable)
+    // Prend les 3 premières lettres du nom (ex: KEVY -> KEV)
+    const namePart = name.trim().replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase();
+    
+    // Prend les 3 premiers chiffres du numéro (ex: 0748... -> 074)
+    const phonePart = phone.replace(/\D/g, '').substring(0, 3);
+    
+    // Résultat : KEV074
+    driverId = `${namePart}${phonePart}`;
 
-    // Gestion collision ID (très rare)
+    // Sécurité collision (Si KEV074 existe déjà, on ajoute un chiffre aléatoire)
     const idExists = await User.findOne({ driverId });
     if (idExists) {
       driverId += Math.floor(Math.random() * 10);
     }
 
-    // 2. Cadeau de bienvenue
-    initialWallet = 500; 
+    // 2. STOCKAGE DES INFOS VÉHICULE
+    vehicleInfo = {
+      model: vehicleModel,
+      plate: vehiclePlate,
+      color: vehicleColor
+    };
 
-    // 3. Enregistrement des infos voiture (si fournies)
-    if (vehicleInfo) {
-      finalVehicleInfo = vehicleInfo;
-    }
+    // 3. BONUS DE BIENVENUE
+    initialWallet = 500; 
   }
 
+  // CRÉATION DE L'UTILISATEUR
   const user = await User.create({
     name,
     email,
     phone,
     password,
-    role: role || 'rider', // Si rien coché, c'est un client
-    driverId,
-    vehicleInfo: finalVehicleInfo,
+    role: role || 'rider',
+    driverId,       // Enregistré ici !
+    vehicleInfo,    // Enregistré ici !
     wallet: initialWallet
   });
 
@@ -84,28 +89,23 @@ const registerUser = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
-      driverId: user.driverId,
+      driverId: user.driverId, // Le frontend reçoit le nouvel ID tout chaud
       wallet: user.wallet,
     });
   } else {
     res.status(400);
-    throw new Error('Données invalides');
+    throw new Error('Données utilisateur invalides');
   }
 });
 
-// @desc    Logout user
-// @route   POST /api/users/logout
-const logoutUser = asyncHandler(async (req, res) => {
-  res.cookie('jwt', '', {
-    httpOnly: true,
-    expires: new Date(0),
-  });
-  res.status(200).json({ message: 'Déconnexion réussie' });
-});
+// ... (Garde logoutUser et getUserProfile tels quels) ...
+const logoutUser = (req, res) => {
+  res.cookie('jwt', '', { httpOnly: true, expires: new Date(0) });
+  res.status(200).json({ message: 'Déconnecté avec succès' });
+};
 
-// @desc    Get user profile
-// @route   GET /api/users/profile
 const getUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
   if (user) {
@@ -113,9 +113,11 @@ const getUserProfile = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
-      driverId: user.driverId,
+      driverId: user.driverId, // Ajouté ici aussi pour le voir dans le profil
       wallet: user.wallet,
+      vehicleInfo: user.vehicleInfo // On pourra afficher sa voiture
     });
   } else {
     res.status(404);
@@ -123,40 +125,4 @@ const getUserProfile = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    Update user profile
-// @route   PUT /api/users/profile
-const updateUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
-  if (user) {
-    user.name = req.body.name || user.name;
-    user.email = req.body.email || user.email;
-    if (req.body.password) {
-      user.password = req.body.password;
-    }
-    // Mise à jour possible des infos véhicule
-    if (req.body.vehicleInfo && user.role === 'driver') {
-        user.vehicleInfo = req.body.vehicleInfo;
-    }
-
-    const updatedUser = await user.save();
-    res.json({
-      _id: updatedUser._id,
-      name: updatedUser.name,
-      email: updatedUser.email,
-      role: updatedUser.role,
-      driverId: updatedUser.driverId,
-      wallet: updatedUser.wallet,
-    });
-  } else {
-    res.status(404);
-    throw new Error('Utilisateur non trouvé');
-  }
-});
-
-module.exports = {
-  authUser,
-  registerUser,
-  logoutUser,
-  getUserProfile,
-  updateUserProfile,
-};
+export { authUser, registerUser, logoutUser, getUserProfile };

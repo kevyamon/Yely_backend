@@ -17,51 +17,58 @@ import { execSync } from 'child_process';
 // Chargement des variables d'environnement
 dotenv.config();
 
-// Importations des configurations et des outils de sécurité
+// Importations des configurations
 import connectDB from './config/db.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import socketManager from './utils/socketManager.js';
 
-// Importations des panneaux indicateurs (Routes)
+// Importations des Routes
 import userRoutes from './routes/userRoutes.js';
 import rideRoutes from './routes/rideRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
-import notificationRoutes from './routes/notificationRoutes.js'; // <--- AJOUT IMPORT
+import notificationRoutes from './routes/notificationRoutes.js';
 
 // Connexion à la base de données MongoDB
 connectDB();
 
 const app = express();
+
+// --- CORRECTION RENDER (TRUST PROXY) ---
+// Indispensable pour que le rateLimit fonctionne sur Render/Heroku/AWS
+app.set('trust proxy', 1); 
+// ---------------------------------------
+
 const port = process.env.PORT || 5000;
 
 // --- BOUCLIERS DE LA FORTERESSE (SÉCURITÉ MAX) ---
 
-// 1. Helmet : Cache les détails techniques du serveur
+// 1. Helmet
 app.use(helmet());
 
-// 2. Mongo Sanitize : Empêche les injections de code malveillant
+// 2. Mongo Sanitize
 app.use(mongoSanitize());
 
-// 3. XSS Clean : Nettoie les données entrantes
+// 3. XSS Clean
 app.use(xss());
 
-// 4. Rate Limit : Empêche les robots de saturer le serveur
+// 4. Rate Limit (C'est lui qui posait problème sans le 'trust proxy')
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limite à 100 requêtes par IP
+  max: 100, // Limite à 100 requêtes
   message: 'La forteresse détecte une activité suspecte. Réessayez plus tard.',
   standardHeaders: true,
   legacyHeaders: false,
 });
 app.use('/api', limiter);
 
-// Configuration CORS (Définit qui a le droit d'entrer dans le château)
+// Configuration CORS
 const corsOptions = {
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:5173',
+    'https://yely-frontend.onrender.com', // (Au cas où tu déploies le front aussi)
     'http://localhost:3000'
   ],
-  credentials: true, // Crucial pour que le badge de sécurité (Cookie JWT) circule
+  credentials: true,
 };
 app.use(cors(corsOptions));
 
@@ -74,35 +81,25 @@ const io = new Server(server, {
   },
 });
 
-// Initialisation du gestionnaire de radio (Mapping et alertes)
 socketManager.init(io);
 
-// Rend "io" accessible partout pour envoyer des messages instantanés
 app.use((req, res, next) => {
   req.io = io;
   next();
 });
 
-// Middlewares pour lire les données (JSON, Formulaires et Cookies)
+// Middlewares
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser()); // Pour lire le badge de sécurité invisible
+app.use(cookieParser());
 
-// --- ROUTES DE L'APPLICATION (LES COULOIRS DU CHÂTEAU) ---
-
-// Gestion des comptes, profil et rôles
+// --- ROUTES ---
 app.use('/api/users', userRoutes);
-
-// Gestion des trajets, mapping et prix calculés par le serveur
 app.use('/api/rides', rideRoutes);
-
-// Gestion de l'argent (Abonnement SaaS)
 app.use('/api/payments', paymentRoutes);
+app.use('/api/notifications', notificationRoutes);
 
-// Gestion des notifications et alertes
-app.use('/api/notifications', notificationRoutes); // <--- AJOUT ROUTE
-
-// --- LA PÉPITE DE VERSIONING (GIT SYNC - LOGIQUE GTY EXPRESS) ---
+// --- VERSIONING ---
 const getGitCommitHash = () => {
   try {
     return execSync('git rev-parse HEAD').toString().trim();
@@ -123,16 +120,15 @@ app.get('/api/version', async (req, res) => {
   }
 });
 
-// Message d'accueil de la Forteresse
 app.get('/', (req, res) => {
   res.send("🚀 LA FORTERESSE YÉLY EST OPÉRATIONNELLE - MAFÉRÉ TECH CITY");
 });
 
-// --- GESTION DES ERREURS (FILETS DE SÉCURITÉ) ---
+// --- GESTION DES ERREURS ---
 app.use(notFound);
 app.use(errorHandler);
 
-// Allumage final du moteur
+// Allumage
 server.listen(port, () =>
   console.log(`🚀 Serveur Yély en ligne sur le port ${port}`)
 );

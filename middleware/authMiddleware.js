@@ -7,42 +7,33 @@ import User from '../models/userModel.js';
 const protect = asyncHandler(async (req, res, next) => {
   let token;
 
-  // On cherche le token dans le Header OU dans les Cookies
-  token = req.cookies.jwt; // Priorité Cookie
+  // 1. Vérification Cookie (Priorité Sécurité)
+  token = req.cookies.jwt;
 
-  // Si pas de cookie, on regarde le Header (Authorization: Bearer xyz...)
+  // 2. Vérification Header (Priorité Compatibilité Render/Mobile)
   if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     token = req.headers.authorization.split(' ')[1];
   }
 
   if (token) {
     try {
-      // DEBUG : On affiche ce qu'on essaie de vérifier (Regarde les Logs Render !)
-      console.log('🔍 MIDDLEWARE: Token reçu ->', token.substring(0, 15) + '...');
-      
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
-      console.log('✅ MIDDLEWARE: Token décodé -> ID:', decoded.userId);
-
       req.user = await User.findById(decoded.userId).select('-password');
 
       if (!req.user) {
-        console.error('❌ MIDDLEWARE: Utilisateur introuvable en base avec cet ID !');
         res.status(401);
-        throw new Error('Non autorisé, utilisateur introuvable');
+        throw new Error('Utilisateur introuvable');
       }
 
-      console.log('🚪 MIDDLEWARE: Accès autorisé pour', req.user.name);
       next();
     } catch (error) {
-      console.error('❌ MIDDLEWARE ERROR:', error.message);
       res.status(401);
-      throw new Error('Non autorisé, token invalide');
+      throw new Error('Token invalide ou expiré');
     }
   } else {
-    console.error('❌ MIDDLEWARE: Aucun token trouvé (Ni cookie, ni header)');
     res.status(401);
-    throw new Error('Non autorisé, pas de token');
+    throw new Error('Non autorisé, aucun token trouvé');
   }
 });
 
@@ -52,7 +43,7 @@ const admin = (req, res, next) => {
     next();
   } else {
     res.status(401);
-    throw new Error('Non autorisé en tant qu\'admin');
+    throw new Error('Espace réservé aux administrateurs');
   }
 };
 

@@ -1,66 +1,69 @@
-// middleware/authMiddleware.js
+// backend/middleware/authMiddleware.js
 import jwt from 'jsonwebtoken';
 import asyncHandler from './asyncHandler.js';
 import User from '../models/userModel.js';
 
-// Protection générale (Vérifie si l'utilisateur est connecté et actif)
+// Protect routes
 const protect = asyncHandler(async (req, res, next) => {
-  let token = req.cookies.jwt;
+  let token;
+
+  // On cherche le token dans le Header OU dans les Cookies
+  token = req.cookies.jwt; // Priorité Cookie
+
+  // Si pas de cookie, on regarde le Header (Authorization: Bearer xyz...)
+  if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
 
   if (token) {
     try {
+      // DEBUG : On affiche ce qu'on essaie de vérifier (Regarde les Logs Render !)
+      console.log('🔍 MIDDLEWARE: Token reçu ->', token.substring(0, 15) + '...');
+      
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
+      console.log('✅ MIDDLEWARE: Token décodé -> ID:', decoded.userId);
+
       req.user = await User.findById(decoded.userId).select('-password');
 
-      if (!req.user || req.user.status !== 'active') {
-        res.status(403);
-        throw new Error('Compte non autorisé ou suspendu.');
+      if (!req.user) {
+        console.error('❌ MIDDLEWARE: Utilisateur introuvable en base avec cet ID !');
+        res.status(401);
+        throw new Error('Non autorisé, utilisateur introuvable');
       }
 
+      console.log('🚪 MIDDLEWARE: Accès autorisé pour', req.user.name);
       next();
     } catch (error) {
+      console.error('❌ MIDDLEWARE ERROR:', error.message);
       res.status(401);
-      throw new Error('Non autorisé, jeton invalide');
+      throw new Error('Non autorisé, token invalide');
     }
   } else {
+    console.error('❌ MIDDLEWARE: Aucun token trouvé (Ni cookie, ni header)');
     res.status(401);
-    throw new Error('Non autorisé, aucun jeton trouvé');
+    throw new Error('Non autorisé, pas de token');
   }
 });
 
-// Gardien pour les administrateurs classiques
+// Admin middleware
 const admin = (req, res, next) => {
-  if (req.user && (req.user.role === 'admin' || req.user.role === 'superAdmin')) {
+  if (req.user && req.user.isAdmin) {
     next();
   } else {
     res.status(401);
-    throw new Error('Accès réservé aux administrateurs');
+    throw new Error('Non autorisé en tant qu\'admin');
   }
 };
 
-// Gardien pour les chauffeurs
+// Driver middleware
 const driverOnly = (req, res, next) => {
   if (req.user && req.user.role === 'driver') {
     next();
   } else {
     res.status(401);
-    throw new Error('Accès réservé aux chauffeurs');
+    throw new Error('Espace réservé aux chauffeurs');
   }
 };
 
-// Gardien SuperAdmin (Haute Direction) - Reconnaissance par Email
-const superAdminOnly = (req, res, next) => {
-  // On récupère les emails autorisés depuis la variable d'environnement (séparés par des virgules)
-  const superAdminEmails = process.env.SUPERADMIN_MAIL 
-    ? process.env.SUPERADMIN_MAIL.split(',').map(email => email.trim().toLowerCase()) 
-    : [];
-
-  if (req.user && (req.user.role === 'superAdmin' || superAdminEmails.includes(req.user.email.toLowerCase()))) {
-    next();
-  } else {
-    res.status(401);
-    throw new Error('Accès réservé à la Haute Direction (SuperAdmin)');
-  }
-};
-
-export { protect, admin, driverOnly, superAdminOnly };
+export { protect, admin, driverOnly };

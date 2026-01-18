@@ -22,12 +22,12 @@ const authUser = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
-      phone: user.phone,
+      phone: user.phone, // Déjà présent, on garde
       role: user.role,
-      token: token, // <--- VOILÀ LA CLÉ MANQUANTE ! 🔑
+      token: token, // Important pour le mode hybride
       driverId: user.driverId,
       vehicleInfo: user.vehicleInfo,
-      subscription: user.subscription // Pour le statut SaaS
+      subscription: user.subscription
     });
   } else {
     res.status(401);
@@ -70,8 +70,9 @@ const registerUser = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone, // <--- AJOUTÉ ICI (C'était le manquant !)
       role: user.role,
-      token: token, // <--- ICI AUSSI !
+      token: token, 
       driverId: user.driverId,
       vehicleInfo: user.vehicleInfo
     });
@@ -103,6 +104,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone, // <--- AJOUTÉ ICI AUSSI
       role: user.role,
       driverId: user.driverId,
       vehicleInfo: user.vehicleInfo,
@@ -123,16 +125,20 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
+    // On pourrait aussi permettre de changer le tel, mais attention aux doublons
+    // Pour l'instant on garde name/email/pass
+    
     if (req.body.password) {
       user.password = req.body.password;
     }
 
     const updatedUser = await user.save();
-    // Note: Pas besoin de renvoyer le token ici, il ne change pas
+    
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
+      phone: updatedUser.phone, // <--- AJOUTÉ ICI POUR METTRE À JOUR LE STORE REDUX
       role: updatedUser.role,
       driverId: updatedUser.driverId,
       vehicleInfo: updatedUser.vehicleInfo,

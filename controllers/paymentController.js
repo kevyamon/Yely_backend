@@ -1,61 +1,79 @@
-// controllers/paymentController.js
+// backend/controllers/paymentController.js
 import asyncHandler from '../middleware/asyncHandler.js';
 import User from '../models/userModel.js';
-import Ride from '../models/rideModel.js';
 
-// @desc    Recharger le compte Yély (Demande manuelle 0% frais)
-// @route   POST /api/payments/recharge
-// @access  Private
-const requestRecharge = asyncHandler(async (req, res) => {
-  const { amount, transactionId } = req.body;
+// @desc    Payer un abonnement (Jour ou Semaine) pour débloquer l'app
+// @route   POST /api/payments/subscribe
+// @access  Private (Driver only)
+const confirmSubscriptionPayment = asyncHandler(async (req, res) => {
+  const { plan, paymentMethod } = req.body; // plan = 'daily' ou 'weekly'
+  const user = await User.findById(req.user._id);
 
-  // Sécurité : On crée une notification pour l'Admin (Toi)
-  // En attendant le dashboard admin, on log la demande
-  console.log(`💰 DEMANDE DE RECHARGE : ${req.user.name} a envoyé ${amount} FCFA (ID: ${transactionId})`);
-
-  res.status(200).json({ 
-    message: 'Demande envoyée. Votre solde sera mis à jour après vérification par Yély.' 
-  });
-});
-
-// @desc    Valider une recharge (Admin Only)
-// @route   PUT /api/payments/validate/:userId
-// @access  Private/Admin
-const validateRecharge = asyncHandler(async (req, res) => {
-  const { amount } = req.body;
-  const user = await User.findById(req.params.userId);
-
-  if (user) {
-    user.wallet += Number(amount);
-    await user.save();
-    res.json({ message: 'Compte rechargé avec succès', newBalance: user.wallet });
-  } else {
+  if (!user) {
     res.status(404);
     throw new Error('Utilisateur non trouvé');
   }
-});
 
-// @desc    Retrait chauffeur (Vers Wave)
-// @route   POST /api/payments/withdraw
-// @access  Private/Driver
-const withdrawEarnings = asyncHandler(async (req, res) => {
-  const chauffeur = await User.findById(req.user._id);
-  const commissionRate = 0.10; // 10% de commission pour Yély
+  // --- 1. DÉFINITION DES TARIFS ET DURÉES ---
+  let durationInHours = 0;
+  let price = 0;
 
-  if (chauffeur.wallet <= 0) {
+  if (plan === 'daily') {
+    durationInHours = 24;      // 24 Heures
+    price = 200;               // 200 FCFA
+  } else if (plan === 'weekly') {
+    durationInHours = 24 * 7;  // 7 Jours
+    price = 1000;              // 1000 FCFA (Promo)
+  } else {
     res.status(400);
-    throw new Error('Votre solde est vide');
+    throw new Error('Type d\'abonnement invalide (daily ou weekly)');
   }
 
-  const amountToTransfer = chauffeur.wallet * (1 - commissionRate);
+  // --- 2. SIMULATION DU PAIEMENT (WAVE / ORANGE / MTN) ---
+  // C'est ici qu'on appellera l'API de Wave plus tard.
+  // Pour l'instant, on simule que le paiement est passé.
+  console.log(`💰 PAIEMENT REÇU : ${user.name} a payé ${price} FCFA pour le plan ${plan} via ${paymentMethod || 'Wave'}`);
+
+  // --- 3. ACTIVATION DE L'ABONNEMENT ---
+  const now = new Date();
   
-  // LOGIQUE WAVE : Ici on appellera l'API Wave Business
-  console.log(`💸 TRANSFERT WAVE : Envoi de ${amountToTransfer} FCFA vers le numéro ${chauffeur.phone}`);
+  // Logique : On active à partir de MAINTENANT
+  user.subscription.status = 'active';
+  user.subscription.plan = plan;
+  user.subscription.lastPaymentDate = now;
+  
+  // Calcul de la date d'expiration (Maintenant + Durée)
+  user.subscription.expiresAt = new Date(now.getTime() + durationInHours * 60 * 60 * 1000);
 
-  chauffeur.wallet = 0; // On remet le solde à zéro
-  await chauffeur.save();
+  const updatedUser = await user.save();
 
-  res.json({ message: 'Virement Wave effectué (Moins 10% commission Yély)' });
+  res.json({
+    message: `Abonnement ${plan === 'daily' ? '24H' : 'Semaine'} activé avec succès !`,
+    subscription: updatedUser.subscription,
+    expiresAt: updatedUser.subscription.expiresAt
+  });
 });
 
-export { requestRecharge, validateRecharge, withdrawEarnings };
+// @desc    Vérifier le statut (Appelé quand l'app s'ouvre)
+// @route   GET /api/payments/status
+// @access  Private
+const checkSubscriptionStatus = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  
+  if (!user) {
+    res.status(404);
+    throw new Error('Utilisateur non trouvé');
+  }
+
+  const now = new Date();
+  
+  // Si la date d'expiration est passée -> On coupe
+  if (user.subscription.expiresAt && now > user.subscription.expiresAt) {
+    user.subscription.status = 'inactive';
+    await user.save();
+  }
+
+  res.json(user.subscription);
+});
+
+export { confirmSubscriptionPayment, checkSubscriptionStatus };

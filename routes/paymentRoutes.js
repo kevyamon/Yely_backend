@@ -1,15 +1,23 @@
-// routes/paymentRoutes.js
+// backend/routes/paymentRoutes.js
 import express from 'express';
 const router = express.Router();
-import { 
-  requestRecharge, 
-  validateRecharge, 
-  withdrawEarnings 
-} from '../controllers/paymentController.js';
-import { protect, admin, driverOnly } from '../middleware/authMiddleware.js';
 
-router.post('/recharge', protect, requestRecharge);
-router.put('/validate/:userId', protect, admin, validateRecharge);
-router.post('/withdraw', protect, driverOnly, withdrawEarnings);
+// On importe les nouvelles fonctions du contrôleur SaaS
+import { 
+  confirmSubscriptionPayment, 
+  checkSubscriptionStatus 
+} from '../controllers/paymentController.js';
+
+import { protect, driverOnly } from '../middleware/authMiddleware.js';
+
+// --- NOUVELLES ROUTES ABONNEMENT ---
+
+// 1. Payer pour activer (200F ou 1000F)
+// POST /api/payments/subscribe
+router.post('/subscribe', protect, driverOnly, confirmSubscriptionPayment);
+
+// 2. Vérifier si je peux travailler (Mur)
+// GET /api/payments/status
+router.get('/status', protect, driverOnly, checkSubscriptionStatus);
 
 export default router;

@@ -1,4 +1,4 @@
-// models/userModel.js
+// backend/models/userModel.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -17,7 +17,7 @@ const userSchema = mongoose.Schema(
     phone: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
     
-    // --- NOUVEAUTÉ : ID TAXI & INFOS VOITURE ---
+    // --- ID TAXI & INFOS VOITURE ---
     driverId: {
       type: String,
       unique: true,
@@ -28,6 +28,23 @@ const userSchema = mongoose.Schema(
       model: { type: String }, // ex: Toyota Corolla
       plate: { type: String }, // ex: 1234 XY 01
       color: { type: String }, // ex: Jaune
+    },
+    
+    // --- NOUVEAU : GESTION ABONNEMENT (SaaS) ---
+    // C'est ici qu'on gère le "Mur" (Payer pour travailler)
+    subscription: {
+      status: { 
+        type: String, 
+        enum: ['active', 'inactive', 'grace_period'], // grace_period = tolérance de quelques heures
+        default: 'inactive' 
+      },
+      plan: { 
+        type: String, 
+        enum: ['daily', 'weekly', 'none'], 
+        default: 'none' 
+      },
+      expiresAt: { type: Date, default: null }, // Date précise de la fin (ex: demain 14h30)
+      lastPaymentDate: { type: Date, default: null }
     },
     // -------------------------------------------
 
@@ -44,10 +61,13 @@ const userSchema = mongoose.Schema(
     },
     wallet: { type: Number, default: 0 },
     isOnline: { type: Boolean, default: false },
+    
+    // Géolocalisation (Indispensable pour la map)
     currentLocation: {
       type: { type: String, enum: ['Point'], default: 'Point' },
-      coordinates: { type: [Number], index: '2dsphere' },
+      coordinates: { type: [Number], index: '2dsphere' }, // [Longitude, Latitude]
     },
+    
     pushSubscriptions: [pushSubscriptionSchema],
     resetPasswordToken: String,
     resetPasswordExpire: Date,

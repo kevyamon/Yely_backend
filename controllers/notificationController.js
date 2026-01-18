@@ -6,22 +6,17 @@ import Notification from '../models/notificationModel.js';
 // @route   GET /api/notifications
 // @access  Private
 const getNotifications = asyncHandler(async (req, res) => {
-  // LOGIQUE INTELLIGENTE :
-  // 1. Si Admin : Voit ses notifs perso + celles du groupe 'admin'
-  // 2. Si Chauffeur : Voit ses notifs perso + celles du groupe 'driver'
-  // 3. Si Client : Voit ses notifs perso + celles du groupe 'rider'
-  
   const userId = req.user._id;
   const userRole = req.user.role; // 'admin', 'driver', 'rider'
 
   const query = {
     $or: [
       { user: userId },      // Notifs personnelles
-      { user: userRole }     // Notifs de groupe (ex: alertes météo pour tous les chauffeurs)
+      { user: userRole }     // Notifs de groupe
     ]
   };
 
-  // Tri par date décroissante (plus récent en haut)
+  // Tri par date décroissante
   const notifications = await Notification.find(query).sort({ createdAt: -1 }).limit(50);
 
   res.json(notifications);
@@ -34,7 +29,6 @@ const markAllAsRead = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const userRole = req.user.role;
 
-  // Mise à jour de masse (Batch Update) pour la performance
   await Notification.updateMany(
     { 
       $or: [{ user: userId }, { user: userRole }],

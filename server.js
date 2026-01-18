@@ -1,4 +1,4 @@
-// server.js
+// backend/server.js
 import path from 'path';
 import express from 'express';
 import dotenv from 'dotenv';
@@ -26,6 +26,7 @@ import socketManager from './utils/socketManager.js';
 import userRoutes from './routes/userRoutes.js';
 import rideRoutes from './routes/rideRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
+import notificationRoutes from './routes/notificationRoutes.js'; // <--- AJOUT IMPORT
 
 // Connexion à la base de données MongoDB
 connectDB();
@@ -35,16 +36,16 @@ const port = process.env.PORT || 5000;
 
 // --- BOUCLIERS DE LA FORTERESSE (SÉCURITÉ MAX) ---
 
-// 1. Helmet : Cache les détails techniques du serveur (Empêche les pirates d'étudier nos murs)
+// 1. Helmet : Cache les détails techniques du serveur
 app.use(helmet());
 
-// 2. Mongo Sanitize : Empêche les injections de code malveillant dans la base de données
+// 2. Mongo Sanitize : Empêche les injections de code malveillant
 app.use(mongoSanitize());
 
-// 3. XSS Clean : Nettoie les données entrantes pour éviter l'exécution de scripts pirates
+// 3. XSS Clean : Nettoie les données entrantes
 app.use(xss());
 
-// 4. Rate Limit : Empêche les robots de saturer le serveur en frappant trop vite à la porte
+// 4. Rate Limit : Empêche les robots de saturer le serveur
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limite à 100 requêtes par IP
@@ -60,7 +61,7 @@ const corsOptions = {
     process.env.FRONTEND_URL || 'http://localhost:5173',
     'http://localhost:3000'
   ],
-  credentials: true, // Crucial pour que le badge de sécurité (Cookie JWT) puisse circuler
+  credentials: true, // Crucial pour que le badge de sécurité (Cookie JWT) circule
 };
 app.use(cors(corsOptions));
 
@@ -95,8 +96,11 @@ app.use('/api/users', userRoutes);
 // Gestion des trajets, mapping et prix calculés par le serveur
 app.use('/api/rides', rideRoutes);
 
-// Gestion de l'argent, recharges Wave et retraits chauffeurs
+// Gestion de l'argent (Abonnement SaaS)
 app.use('/api/payments', paymentRoutes);
+
+// Gestion des notifications et alertes
+app.use('/api/notifications', notificationRoutes); // <--- AJOUT ROUTE
 
 // --- LA PÉPITE DE VERSIONING (GIT SYNC - LOGIQUE GTY EXPRESS) ---
 const getGitCommitHash = () => {

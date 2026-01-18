@@ -1,4 +1,4 @@
-// controllers/rideController.js
+// backend/controllers/rideController.js
 import asyncHandler from '../middleware/asyncHandler.js';
 import Ride from '../models/rideModel.js';
 import User from '../models/userModel.js';
@@ -10,7 +10,6 @@ const createRide = asyncHandler(async (req, res) => {
   const { pickupLocation, dropoffLocation, paymentMethod } = req.body;
 
   // LOGIQUE SÉCURITÉ : Le Backend calcule le prix (Ne jamais faire confiance au Frontend)
-  // Ici on mettra une formule : Distance * Tarif_KM
   const calculatedPrice = 1500; // Exemple fixe pour l'instant
 
   // Vérification si paiement par crédit : le client a-t-il assez d'argent ?
@@ -33,4 +32,21 @@ const createRide = asyncHandler(async (req, res) => {
   res.status(201).json(ride);
 });
 
-export { createRide };
+// @desc    Récupérer l'historique des courses (Client ou Chauffeur)
+// @route   GET /api/rides/history
+// @access  Private
+const getRideHistory = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  // On cherche toutes les courses où l'utilisateur est soit 'client', soit 'driver'
+  const rides = await Ride.find({
+    $or: [
+      { client: userId }, 
+      { driver: userId }
+    ]
+  }).sort({ createdAt: -1 }); // Plus récent en haut
+
+  res.json(rides);
+});
+
+export { createRide, getRideHistory };

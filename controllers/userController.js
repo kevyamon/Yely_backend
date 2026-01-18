@@ -9,27 +9,29 @@ import generateToken from '../utils/generateToken.js';
 const authUser = asyncHandler(async (req, res) => {
   const { emailOrPhone, password } = req.body;
 
-  // Recherche par Email OU Téléphone
+  // On cherche par email OU par téléphone
   const user = await User.findOne({
-    $or: [{ email: emailOrPhone }, { phone: emailOrPhone }],
+    $or: [{ email: emailOrPhone }, { phone: emailOrPhone }]
   });
 
   if (user && (await user.matchPassword(password))) {
-    generateToken(res, user._id);
-    
+    // On génère le token ET on le récupère dans une variable
+    const token = generateToken(res, user._id);
+
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
       phone: user.phone,
       role: user.role,
-      driverId: user.driverId, 
-      wallet: user.wallet,
-      subscription: user.subscription, // <--- AJOUT CRUCIAL (État Abonnement)
+      token: token, // <--- VOILÀ LA CLÉ MANQUANTE ! 🔑
+      driverId: user.driverId,
+      vehicleInfo: user.vehicleInfo,
+      subscription: user.subscription // Pour le statut SaaS
     });
   } else {
     res.status(401);
-    throw new Error('Email/Téléphone ou mot de passe invalide');
+    throw new Error('Email ou mot de passe incorrect');
   }
 });
 
@@ -40,76 +42,54 @@ const registerUser = asyncHandler(async (req, res) => {
   const { name, email, phone, password, role, vehicleModel, vehiclePlate, vehicleColor } = req.body;
 
   const userExists = await User.findOne({ $or: [{ email }, { phone }] });
+
   if (userExists) {
     res.status(400);
-    throw new Error('Un utilisateur avec cet email ou ce numéro existe déjà');
+    throw new Error('Cet utilisateur existe déjà');
   }
 
-  // --- LOGIQUE SPÉCIALE CHAUFFEUR (Ton code) ---
-  let driverId = null;
-  let vehicleInfo = null;
-  let initialWallet = 0;
+  // Création conditionnelle selon le rôle
+  let userData = { name, email, phone, password, role };
 
+  // Si c'est un chauffeur, on ajoute ses infos véhicule
   if (role === 'driver') {
-    // 1. GÉNÉRATION AUTOMATIQUE DU ID TAXI
-    const namePart = name.trim().replace(/[^a-zA-Z]/g, '').substring(0, 3).toUpperCase();
-    const phonePart = phone.replace(/\D/g, '').substring(0, 3);
-    driverId = `${namePart}${phonePart}`;
-
-    // Sécurité collision
-    const idExists = await User.findOne({ driverId });
-    if (idExists) {
-      driverId += Math.floor(Math.random() * 10);
-    }
-
-    // 2. STOCKAGE DES INFOS VÉHICULE
-    vehicleInfo = {
+    userData.driverId = `DRI-${Date.now().toString().slice(-6)}`; // ID unique simple
+    userData.vehicleInfo = {
       model: vehicleModel,
       plate: vehiclePlate,
       color: vehicleColor
     };
-
-    // 3. BONUS DE BIENVENUE
-    initialWallet = 500; 
   }
 
-  // CRÉATION DE L'UTILISATEUR
-  const user = await User.create({
-    name,
-    email,
-    phone,
-    password,
-    role: role || 'rider',
-    driverId,
-    vehicleInfo,
-    wallet: initialWallet,
-    // Note: subscription est créé automatiquement par le "default" du Model
-  });
+  const user = await User.create(userData);
 
   if (user) {
-    generateToken(res, user._id);
+    const token = generateToken(res, user._id);
+
     res.status(201).json({
       _id: user._id,
       name: user.name,
       email: user.email,
-      phone: user.phone,
       role: user.role,
+      token: token, // <--- ICI AUSSI !
       driverId: user.driverId,
-      wallet: user.wallet,
-      subscription: user.subscription, // <--- AJOUT CRUCIAL
+      vehicleInfo: user.vehicleInfo
     });
   } else {
     res.status(400);
-    throw new Error('Données utilisateur invalides');
+    throw new Error('Données invalides');
   }
 });
 
 // @desc    Logout user / clear cookie
 // @route   POST /api/users/logout
-// @access  Private
+// @access  Public
 const logoutUser = (req, res) => {
-  res.cookie('jwt', '', { httpOnly: true, expires: new Date(0) });
-  res.status(200).json({ message: 'Déconnecté avec succès' });
+  res.cookie('jwt', '', {
+    httpOnly: true,
+    expires: new Date(0),
+  });
+  res.status(200).json({ message: 'Déconnexion réussie' });
 };
 
 // @desc    Get user profile
@@ -123,12 +103,10 @@ const getUserProfile = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
-      phone: user.phone,
       role: user.role,
       driverId: user.driverId,
-      wallet: user.wallet,
       vehicleInfo: user.vehicleInfo,
-      subscription: user.subscription, // <--- AJOUT CRUCIAL
+      subscription: user.subscription
     });
   } else {
     res.status(404);
@@ -145,23 +123,19 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
-    user.phone = req.body.phone || user.phone;
-
     if (req.body.password) {
       user.password = req.body.password;
     }
 
     const updatedUser = await user.save();
-
+    // Note: Pas besoin de renvoyer le token ici, il ne change pas
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
-      phone: updatedUser.phone,
       role: updatedUser.role,
       driverId: updatedUser.driverId,
-      wallet: updatedUser.wallet,
-      subscription: updatedUser.subscription, // <--- AJOUT CRUCIAL
+      vehicleInfo: updatedUser.vehicleInfo,
     });
   } else {
     res.status(404);
@@ -169,4 +143,10 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   }
 });
 
-export { authUser, registerUser, logoutUser, getUserProfile, updateUserProfile };
+export {
+  authUser,
+  registerUser,
+  logoutUser,
+  getUserProfile,
+  updateUserProfile,
+};

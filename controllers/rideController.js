@@ -1,4 +1,3 @@
-// backend/controllers/rideController.js
 import asyncHandler from '../middleware/asyncHandler.js';
 import Ride from '../models/rideModel.js';
 import User from '../models/userModel.js';
@@ -8,21 +7,23 @@ import User from '../models/userModel.js';
 const createRide = asyncHandler(async (req, res) => {
   const { pickupLocation, dropoffLocation, paymentMethod, price, driverId } = req.body;
 
-  // Si driverId est fourni, c'est une demande directe à un taxi choisi sur la map
   const ride = await Ride.create({
     client: req.user._id,
-    driver: driverId || null, // Peut être null si recherche générale
+    driver: driverId || null,
     pickupLocation,
     dropoffLocation,
     paymentMethod,
     price,
   });
 
-  // Notification via Socket au chauffeur spécifique ou à la zone
+  // Notification via Socket
   if (driverId) {
+    // Cas où on choisit un chauffeur précis sur la carte
     req.io.to(driverId.toString()).emit('newDirectRideRequest', ride);
   } else {
-    req.io.emit('newRideRequest', ride);
+    // 🟢 CORRECTION ICI : On utilise le bon canal que le Frontend écoute !
+    // Avant c'était 'newRideRequest' (Personne n'écoutait ça)
+    req.io.emit('newRideAvailable', ride); 
   }
 
   res.status(201).json(ride);
@@ -39,7 +40,7 @@ const acceptRide = asyncHandler(async (req, res) => {
     ride.acceptedAt = Date.now();
     const updatedRide = await ride.save();
 
-    // Notifier le client immédiatement
+    // Notifier le client immédiatement que c'est accepté
     req.io.emit('rideAccepted', updatedRide);
     res.json(updatedRide);
   } else {
@@ -59,7 +60,7 @@ const declineRide = asyncHandler(async (req, res) => {
     ride.declineReason = reason;
     await ride.save();
 
-    // Notifier le client du refus et du motif
+    // Notifier le client du refus
     req.io.emit('rideDeclined', { rideId: ride._id, reason });
     res.json({ message: 'Course refusée' });
   } else {

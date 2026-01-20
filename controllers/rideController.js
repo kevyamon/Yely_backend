@@ -17,32 +17,46 @@ const createRide = asyncHandler(async (req, res) => {
   });
 
   // Notification via Socket
+  // On peuple les infos du client pour que le chauffeur voit qui il va chercher
+  const populatedRide = await ride.populate('client', 'name profilePicture rating');
+
   if (driverId) {
-    // Cas 1 : Demande directe à un chauffeur précis
-    req.io.to(driverId.toString()).emit('newDirectRideRequest', ride);
+    req.io.to(driverId.toString()).emit('newDirectRideRequest', populatedRide);
   } else {
-    // 🟢 CORRECTION MAJEURE : On n'envoie qu'aux chauffeurs DANS LA ROOM 'drivers'
-    // Avant : req.io.emit(...) -> Tout le monde recevait
-    // Maintenant : Seuls ceux qui ont fait "joinZone('drivers')" reçoivent
-    req.io.to('drivers').emit('newRideAvailable', ride); 
+    req.io.to('drivers').emit('newRideAvailable', populatedRide); 
   }
 
-  res.status(201).json(ride);
+  res.status(201).json(populatedRide);
 });
 
-// @desc    2. Accepter une course (Côté Taxi)
+// @desc    2. Accepter une course (Côté Taxi) -> C'EST ICI LA CORRECTION
 // @route   PUT /api/rides/:id/accept
 const acceptRide = asyncHandler(async (req, res) => {
   const ride = await Ride.findById(req.params.id);
 
   if (ride) {
+    // Vérification : Si déjà prise
+    if (ride.status !== 'requested') {
+      res.status(400);
+      throw new Error('Cette course n\'est plus disponible');
+    }
+
     ride.status = 'accepted';
     ride.driver = req.user._id;
     ride.acceptedAt = Date.now();
-    const updatedRide = await ride.save();
+    
+    await ride.save();
 
-    req.io.emit('rideAccepted', updatedRide);
-    res.json(updatedRide);
+    // 🟢 CRUCIAL : On remplit (populate) les infos complètes du chauffeur ET du véhicule
+    // Sans ça, le client reçoit juste l'ID du chauffeur "65a..." et ne peut rien afficher.
+    const fullRide = await Ride.findById(ride._id)
+      .populate('driver', 'name profilePicture phone vehicleInfo rating')
+      .populate('client', 'name profilePicture phone');
+
+    // On envoie le paquet COMPLET via Socket
+    req.io.emit('rideAccepted', fullRide);
+    
+    res.json(fullRide);
   } else {
     res.status(404);
     throw new Error('Course non trouvée');
@@ -56,7 +70,9 @@ const declineRide = asyncHandler(async (req, res) => {
   const ride = await Ride.findById(req.params.id);
 
   if (ride) {
-    ride.status = 'declined';
+    // Optionnel : Si le chauffeur refuse, on pourrait remettre en 'requested' pour un autre
+    // Pour l'instant, on note le refus.
+    ride.status = 'declined'; 
     ride.declineReason = reason;
     await ride.save();
 
@@ -104,7 +120,11 @@ const completeRide = asyncHandler(async (req, res) => {
 const getRideHistory = asyncHandler(async (req, res) => {
   const rides = await Ride.find({
     $or: [{ client: req.user._id }, { driver: req.user._id }]
-  }).sort({ createdAt: -1 });
+  })
+  .populate('driver', 'name vehicleInfo') // On peuple aussi pour l'historique
+  .populate('client', 'name')
+  .sort({ createdAt: -1 });
+  
   res.json(rides);
 });
 

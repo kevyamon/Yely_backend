@@ -1,4 +1,3 @@
-// utils/socketManager.js
 let io;
 
 const socketManager = {
@@ -8,15 +7,25 @@ const socketManager = {
     io.on('connection', (socket) => {
       console.log(`⚡ Connexion réseau Yély : ${socket.id}`);
 
-      // Chauffeur rejoint sa zone de travail
+      // Chauffeur rejoint sa zone de travail (Entrée en service)
       socket.on('joinZone', (zoneId) => {
         socket.join(zoneId);
+        console.log(`Socket ${socket.id} a rejoint la zone : ${zoneId}`);
       });
 
-      // Tracking GPS en temps réel (Chauffeur -> Client)
+      // 🟢 NOUVEAU : Chauffeur quitte sa zone (Fin de service)
+      socket.on('leaveZone', (zoneId) => {
+        socket.leave(zoneId);
+        console.log(`Socket ${socket.id} a quitté la zone : ${zoneId}`);
+      });
+
+      // Tracking GPS en temps réel
       socket.on('updateLocation', (data) => {
         const { rideId, location } = data;
-        socket.to(rideId).emit('driverLocationUpdate', location);
+        // On renvoie la position seulement au client concerné par la course
+        if (rideId) {
+            socket.to(rideId).emit('driverLocationUpdate', location);
+        }
       });
 
       // Rejoindre le canal d'un trajet spécifique
@@ -24,10 +33,9 @@ const socketManager = {
         socket.join(rideId);
       });
 
-      // Canal spécial pour la Tour de Contrôle Admin
+      // Canal spécial Admin
       socket.on('joinAdminRoom', () => {
         socket.join('admin_room');
-        console.log('🛡️ Un SuperAdmin a rejoint la Tour de Contrôle');
       });
 
       socket.on('disconnect', () => {
@@ -36,17 +44,17 @@ const socketManager = {
     });
   },
 
-  // Alerte pour les chauffeurs (Nouvelle course)
+  // Alerte pour les chauffeurs
   notifyNewRide: (zoneId, rideData) => {
     if (io) io.to(zoneId).emit('newRideAvailable', rideData);
   },
 
-  // Alerte instantanée pour la Tour de Contrôle (Stats, Alertes)
+  // Alerte Admin
   broadcastAdminUpdate: (type, data) => {
     if (io) io.to('admin_room').emit('dashboardUpdate', { type, data });
   },
 
-  // Message système au trajet
+  // Message système
   sendSystemMessage: (rideId, message) => {
     if (io) io.to(rideId).emit('systemAlert', { message });
   }

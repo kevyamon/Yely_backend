@@ -18,12 +18,13 @@ const createRide = asyncHandler(async (req, res) => {
 
   // Notification via Socket
   if (driverId) {
-    // Cas où on choisit un chauffeur précis sur la carte
+    // Cas 1 : Demande directe à un chauffeur précis
     req.io.to(driverId.toString()).emit('newDirectRideRequest', ride);
   } else {
-    // 🟢 CORRECTION ICI : On utilise le bon canal que le Frontend écoute !
-    // Avant c'était 'newRideRequest' (Personne n'écoutait ça)
-    req.io.emit('newRideAvailable', ride); 
+    // 🟢 CORRECTION MAJEURE : On n'envoie qu'aux chauffeurs DANS LA ROOM 'drivers'
+    // Avant : req.io.emit(...) -> Tout le monde recevait
+    // Maintenant : Seuls ceux qui ont fait "joinZone('drivers')" reçoivent
+    req.io.to('drivers').emit('newRideAvailable', ride); 
   }
 
   res.status(201).json(ride);
@@ -40,7 +41,6 @@ const acceptRide = asyncHandler(async (req, res) => {
     ride.acceptedAt = Date.now();
     const updatedRide = await ride.save();
 
-    // Notifier le client immédiatement que c'est accepté
     req.io.emit('rideAccepted', updatedRide);
     res.json(updatedRide);
   } else {
@@ -60,7 +60,6 @@ const declineRide = asyncHandler(async (req, res) => {
     ride.declineReason = reason;
     await ride.save();
 
-    // Notifier le client du refus
     req.io.emit('rideDeclined', { rideId: ride._id, reason });
     res.json({ message: 'Course refusée' });
   } else {

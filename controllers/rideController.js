@@ -3,7 +3,7 @@ import asyncHandler from '../middleware/asyncHandler.js';
 import Ride from '../models/rideModel.js';
 import User from '../models/userModel.js';
 
-// @desc    1. Créer une demande de course
+// @desc    1. Créer une demande
 const createRide = asyncHandler(async (req, res) => {
   const { pickupLocation, dropoffLocation, paymentMethod, price, driverId } = req.body;
 
@@ -27,11 +27,19 @@ const createRide = asyncHandler(async (req, res) => {
   res.status(201).json(populatedRide);
 });
 
-// @desc    2. Accepter une course
+// @desc    2. Accepter (CORRIGÉ : Anti-doublon)
 const acceptRide = asyncHandler(async (req, res) => {
   const ride = await Ride.findById(req.params.id);
 
   if (ride) {
+    // IDEMPOTENCE : Si c'est déjà MOI le chauffeur, on renvoie succès sans erreur (pour gérer le double clic)
+    if (ride.status === 'accepted' && ride.driver.toString() === req.user._id.toString()) {
+       const existingRide = await Ride.findById(ride._id)
+        .populate('driver', 'name profilePicture phone vehicleInfo rating')
+        .populate('client', 'name profilePicture phone');
+       return res.json(existingRide);
+    }
+
     if (ride.status !== 'requested') {
       res.status(400);
       throw new Error('Cette course n\'est plus disponible');
@@ -54,7 +62,7 @@ const acceptRide = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    3. Refuser une course
+// @desc    3. Refuser
 const declineRide = asyncHandler(async (req, res) => {
   const { reason } = req.body;
   const ride = await Ride.findById(req.params.id);
@@ -63,7 +71,6 @@ const declineRide = asyncHandler(async (req, res) => {
     ride.status = 'declined';
     ride.declineReason = reason;
     await ride.save();
-
     req.io.emit('rideDeclined', { rideId: ride._id, reason });
     res.json({ message: 'Course refusée' });
   } else {
@@ -72,7 +79,7 @@ const declineRide = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    4. Client à bord (CORRIGÉ POUR GARDER LES INFOS)
+// @desc    4. Client à bord (CORRIGÉ : Populate complet)
 const startRide = asyncHandler(async (req, res) => {
   const ride = await Ride.findById(req.params.id);
   if (ride) {
@@ -80,8 +87,7 @@ const startRide = asyncHandler(async (req, res) => {
     ride.startedAt = Date.now();
     await ride.save();
 
-    // 🟢 CORRECTION CRITIQUE : On recharge TOUTES les infos (Chauffeur + Véhicule)
-    // Sinon le frontend reçoit juste l'ID du driver et affiche des infos bidons.
+    // On s'assure de renvoyer l'objet complet pour que le client ne perde pas les infos
     const fullRide = await Ride.findById(ride._id)
       .populate('driver', 'name profilePicture phone vehicleInfo rating')
       .populate('client', 'name profilePicture phone');
@@ -94,7 +100,7 @@ const startRide = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    5. Course terminée (CORRIGÉ POUR GARDER LES INFOS)
+// @desc    5. Terminer (CORRIGÉ : Populate complet)
 const completeRide = asyncHandler(async (req, res) => {
   const ride = await Ride.findById(req.params.id);
   if (ride) {
@@ -102,7 +108,6 @@ const completeRide = asyncHandler(async (req, res) => {
     ride.completedAt = Date.now();
     await ride.save();
 
-    // 🟢 CORRECTION CRITIQUE : Idem ici, on veut voir la photo du chauffeur à la fin
     const fullRide = await Ride.findById(ride._id)
       .populate('driver', 'name profilePicture phone vehicleInfo rating')
       .populate('client', 'name profilePicture phone');

@@ -1,14 +1,12 @@
-// routes/userRoutes.js
 import express from 'express';
 const router = express.Router();
 
-// On importe TOUT depuis le bon fichier controller mis à jour
 import {
   registerUser,
   loginUser,
   logoutUser,
   getUserProfile,
-  updateUserProfile // J'ai ajouté l'update profile manquante dans l'import
+  updateUserProfile
 } from '../controllers/userController.js';
 
 import { protect } from '../middleware/authMiddleware.js';
@@ -17,7 +15,7 @@ import { decrementSubscriptionTime } from '../middleware/subscriptionDecrementMi
 // Route Inscription
 router.route('/').post(registerUser);
 
-// Route Connexion (Celle qui contient maintenant l'Auto-Promotion)
+// Route Connexion
 router.post('/login', loginUser);
 
 // Route Déconnexion

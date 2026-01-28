@@ -1,4 +1,3 @@
-// models/userModel.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -72,16 +71,22 @@ const userSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// 🔥 LA CORRECTION EST JUSTE ICI 🔥
+// 🔥 MIDDLEWARE PRE-SAVE CORRIGÉ (Protection anti-double-hash)
 userSchema.pre('save', async function (next) {
-  // Si le mot de passe n'a pas changé, ON ARRÊTE TOUT (return) !
-  if (!this.isModified('password')) { 
-    return next(); 
+  // Si le mot de passe n'a pas été modifié, on skip
+  if (!this.isModified('password')) {
+    return next();
   }
 
-  // On ne passe ici que si le mot de passe est nouveau
+  // Protection anti-double-hash : si c'est déjà un hash bcrypt, on skip
+  if (this.password && (this.password.startsWith('$2a$') || this.password.startsWith('$2b$'))) {
+    return next();
+  }
+
+  // Seulement maintenant, on hash le nouveau mot de passe
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
 });
 
 userSchema.methods.matchPassword = async function (enteredPassword) {

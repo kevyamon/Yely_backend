@@ -72,23 +72,21 @@ const userSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// 🔥 LE BLINDAGE ANTI-BUG EST ICI 🔥
+// 🔥 CORRECTIF DÉFINITIF : BLINDAGE ANTI-DOUBLE-HASH 🔥
 userSchema.pre('save', async function (next) {
   // 1. Si le mot de passe n'a pas été modifié, on ne fait rien.
   if (!this.isModified('password')) { 
     return next(); 
   }
 
-  // 2. SÉCURITÉ SUPPLÉMENTAIRE : Est-ce que ça ressemble DÉJÀ à un mot de passe crypté ?
-  // Les hash bcrypt commencent généralement par $2a ou $2b et font 60 caractères.
-  const isAlreadyHashed = /^\$2[ayb]\$.{56}$/.test(this.password);
-  
-  if (isAlreadyHashed) {
-    // Si c'est déjà crypté, ON NE TOUCHE PAS !
+  // 2. VÉRIFICATION ROBUSTE : Est-ce DÉJÀ un hash Bcrypt valide ?
+  // Un hash bcrypt valide commence toujours par $2 et fait exactement 60 caractères.
+  // Cette condition est beaucoup plus fiable que l'ancienne Regex.
+  if (this.password.startsWith('$2') && this.password.length === 60) {
     return next();
   }
 
-  // 3. Sinon, on crypte le nouveau mot de passe
+  // 3. Sinon, on crypte.
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });

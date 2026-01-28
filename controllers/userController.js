@@ -20,10 +20,11 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Un compte avec cet email ou téléphone existe déjà');
   }
 
-  // 🔥 DÉTECTION AUTOMATIQUE DU SUPERADMIN (Restauration)
+  // Détection SuperAdmin à l'inscription
   const isSuperAdmin = email === process.env.ADMIN_MAIL;
   const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
 
+  // Ici on utilise .create() qui déclenche .save() => Hachage normal du mot de passe
   const user = await User.create({
     name,
     email,
@@ -33,7 +34,7 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (user) {
-    const token = generateToken(res, user._id); // Génération du token
+    const token = generateToken(res, user._id);
 
     res.status(201).json({
       _id: user._id,
@@ -66,10 +67,10 @@ const loginUser = asyncHandler(async (req, res) => {
 
   if (user && (await user.matchPassword(password))) {
     
-    // 🔥 AUTO-PROMOTION DYNAMIQUE (Restauration)
+    // 🔥 AUTO-PROMOTION SÉCURISÉE (Via updateOne)
     if (email === process.env.ADMIN_MAIL && user.role !== 'superAdmin') {
-      user.role = 'superAdmin';
-      await user.save(); // Le bug du double hash est réglé dans le modèle, donc c'est safe ici.
+      await User.updateOne({ _id: user._id }, { $set: { role: 'superAdmin' } });
+      user.role = 'superAdmin'; // Mise à jour locale pour la réponse JSON
       console.log(`👑 AUTO-PROMOTION: ${user.name} est passé SuperAdmin à la connexion.`);
     }
 
@@ -131,6 +132,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
 
+    // Si le mot de passe change, on utilise .save() pour déclencher le hachage
     if (req.body.password) {
       user.password = req.body.password;
     }
@@ -158,7 +160,6 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   }
 });
 
-// EXPORT ES MODULES (C'est ça qui corrige l'erreur)
 export {
   registerUser,
   loginUser,

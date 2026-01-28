@@ -1,4 +1,4 @@
-// backend/server.js
+// kevyamon/yely_backend/server.js
 import path from 'path';
 import express from 'express';
 import dotenv from 'dotenv';
@@ -11,11 +11,16 @@ import mongoSanitize from 'express-mongo-sanitize';
 import xss from 'xss-clean';
 import rateLimit from 'express-rate-limit';
 import { fileURLToPath } from 'url';
-import { promises as fs } from 'fs';
+import { promises as fsPromises } from 'fs'; // Renommé pour clarté
+import fs from 'fs'; // Import synchrone pour la création du dossier au démarrage
 import { execSync } from 'child_process';
 
 // Chargement des variables d'environnement
 dotenv.config();
+
+// Configuration des chemins pour ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Importations des configurations
 import connectDB from './config/db.js';
@@ -27,6 +32,7 @@ import userRoutes from './routes/userRoutes.js';
 import rideRoutes from './routes/rideRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import subscriptionRoutes from './routes/subscriptionRoutes.js'; // <--- NOUVEAU
 
 // Connexion à la base de données MongoDB
 connectDB();
@@ -34,27 +40,19 @@ connectDB();
 const app = express();
 
 // --- CORRECTION RENDER (TRUST PROXY) ---
-// Indispensable pour que le rateLimit fonctionne sur Render/Heroku/AWS
-app.set('trust proxy', 1); 
-// ---------------------------------------
+app.set('trust proxy', 1);
 
 const port = process.env.PORT || 5000;
 
 // --- BOUCLIERS DE LA FORTERESSE (SÉCURITÉ MAX) ---
-
-// 1. Helmet
 app.use(helmet());
-
-// 2. Mongo Sanitize
 app.use(mongoSanitize());
-
-// 3. XSS Clean
 app.use(xss());
 
-// 4. Rate Limit (C'est lui qui posait problème sans le 'trust proxy')
+// Rate Limit
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limite à 100 requêtes
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'La forteresse détecte une activité suspecte. Réessayez plus tard.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -65,7 +63,7 @@ app.use('/api', limiter);
 const corsOptions = {
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:5173',
-    'https://yely-frontend.onrender.com', // (Au cas où tu déploies le front aussi)
+    'https://yely-frontend.onrender.com',
     'http://localhost:3000'
   ],
   credentials: true,
@@ -93,11 +91,19 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// --- CRÉATION DOSSIER UPLOADS (Correction ES Modules) ---
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)){
+    fs.mkdirSync(uploadDir);
+    console.log('📁 Dossier uploads créé avec succès.');
+}
+
 // --- ROUTES ---
 app.use('/api/users', userRoutes);
 app.use('/api/rides', rideRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/subscription', subscriptionRoutes); // <--- ACTIVATION DU GUICHET
 
 // --- VERSIONING ---
 const getGitCommitHash = () => {
@@ -111,7 +117,7 @@ const getGitCommitHash = () => {
 app.get('/api/version', async (req, res) => {
   try {
     const packageJsonPath = path.resolve(process.cwd(), 'package.json');
-    const packageJsonData = await fs.readFile(packageJsonPath, 'utf8');
+    const packageJsonData = await fsPromises.readFile(packageJsonPath, 'utf8');
     const { version } = JSON.parse(packageJsonData);
     const commitHash = getGitCommitHash();
     res.json({ version, commitHash });

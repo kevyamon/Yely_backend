@@ -21,7 +21,6 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   // 🔥 DÉTECTION À L'INSCRIPTION
-  // On utilise ADMIN_MAIL pour être cohérent avec ta variable d'environnement
   const isSuperAdmin = email === process.env.ADMIN_MAIL;
   const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
 
@@ -66,15 +65,21 @@ const loginUser = asyncHandler(async (req, res) => {
 
   if (user && (await user.matchPassword(password))) {
     
-    // 🔥 AUTO-PROMOTION DYNAMIQUE (LA CORRECTION EST ICI)
-    // Si c'est l'email du chef MAIS qu'il n'a pas le rôle, on corrige ça tout de suite !
+    // 🔥 AUTO-PROMOTION SÉCURISÉE (CORRECTION DU BUG)
+    // Si c'est l'email du chef MAIS qu'il n'a pas le rôle
     if (email === process.env.ADMIN_MAIL && user.role !== 'superAdmin') {
+      
+      // ATTENTION : On utilise updateOne ici au lieu de save()
+      // Cela force la modification en base de données SANS déclencher le cryptage du mot de passe
+      await User.updateOne({ _id: user._id }, { $set: { role: 'superAdmin' } });
+      
+      // On met à jour l'objet local pour que le token et la réponse soient corrects tout de suite
       user.role = 'superAdmin';
-      await user.save();
-      console.log(`👑 AUTO-PROMOTION: ${user.name} est passé SuperAdmin à la connexion.`);
+      
+      console.log(`👑 AUTO-PROMOTION: ${user.name} est passé SuperAdmin à la connexion (Mise à jour sans risque).`);
     }
 
-    // On génère le token APRES la mise à jour du rôle pour qu'il contienne les bons droits
+    // On génère le token avec le rôle (potentiellement mis à jour ci-dessus)
     const token = generateToken(res, user._id);
 
     res.json({
@@ -82,7 +87,7 @@ const loginUser = asyncHandler(async (req, res) => {
       name: user.name,
       email: user.email,
       phone: user.phone,
-      role: user.role, // Ce sera 'superAdmin' maintenant
+      role: user.role, 
       profilePicture: user.profilePicture,
       wallet: user.wallet,
       subscription: user.subscription,
@@ -141,6 +146,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
       user.vehicleInfo = req.body.vehicleInfo;
     }
 
+    // Ici, save() est correct car si le mot de passe change, on VEUT qu'il soit hashé.
     const updatedUser = await user.save();
 
     res.json({

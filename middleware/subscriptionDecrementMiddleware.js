@@ -1,4 +1,5 @@
- // middleware/subscriptionDecrementMiddleware.js
+  
+// middleware/subscriptionDecrementMiddleware.js
 
 import User from '../models/userModel.js';
 

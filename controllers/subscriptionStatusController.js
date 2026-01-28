@@ -1,4 +1,5 @@
- // controllers/subscriptionStatusController.js
+  
+// controllers/subscriptionStatusController.js
 
 import asyncHandler from '../middleware/asyncHandler.js';
 import User from '../models/userModel.js';

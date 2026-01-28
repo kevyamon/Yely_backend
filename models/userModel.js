@@ -17,7 +17,12 @@ const userSchema = mongoose.Schema(
     phone: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
     
-    driverId: { type: String, unique: true, sparse: true, trim: true },
+    driverId: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true
+    },
     vehicleInfo: {
       model: { type: String },
       plate: { type: String },
@@ -25,8 +30,16 @@ const userSchema = mongoose.Schema(
     },
     
     subscription: {
-      status: { type: String, enum: ['active', 'inactive'], default: 'inactive' },
-      plan: { type: String, enum: ['WEEKLY', 'MONTHLY', 'none'], default: 'none' },
+      status: { 
+        type: String, 
+        enum: ['active', 'inactive'],
+        default: 'inactive' 
+      },
+      plan: { 
+        type: String, 
+        enum: ['WEEKLY', 'MONTHLY', 'none'], 
+        default: 'none' 
+      },
       remainingHours: { type: Number, default: 0 },
       totalHours: { type: Number, default: 0 },
       lastCheckTime: { type: Date, default: null },
@@ -34,8 +47,16 @@ const userSchema = mongoose.Schema(
     },
 
     profilePicture: { type: String, default: '' },
-    role: { type: String, enum: ['rider', 'driver', 'admin', 'superAdmin'], default: 'rider' },
-    status: { type: String, enum: ['active', 'suspended', 'banned'], default: 'active' },
+    role: {
+      type: String,
+      enum: ['rider', 'driver', 'admin', 'superAdmin'],
+      default: 'rider',
+    },
+    status: {
+      type: String,
+      enum: ['active', 'suspended', 'banned'],
+      default: 'active',
+    },
     wallet: { type: Number, default: 0 },
     isOnline: { type: Boolean, default: false },
     
@@ -51,11 +72,23 @@ const userSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// Middleware de sécurité (Le fameux correctif)
+// 🔥 LE BLINDAGE ANTI-BUG EST ICI 🔥
 userSchema.pre('save', async function (next) {
+  // 1. Si le mot de passe n'a pas été modifié, on ne fait rien.
   if (!this.isModified('password')) { 
     return next(); 
   }
+
+  // 2. SÉCURITÉ SUPPLÉMENTAIRE : Est-ce que ça ressemble DÉJÀ à un mot de passe crypté ?
+  // Les hash bcrypt commencent généralement par $2a ou $2b et font 60 caractères.
+  const isAlreadyHashed = /^\$2[ayb]\$.{56}$/.test(this.password);
+  
+  if (isAlreadyHashed) {
+    // Si c'est déjà crypté, ON NE TOUCHE PAS !
+    return next();
+  }
+
+  // 3. Sinon, on crypte le nouveau mot de passe
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
@@ -65,6 +98,4 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 };
 
 const User = mongoose.model('User', userSchema);
-
-// 👇 C'EST CETTE LIGNE QUI MANQUAIT PEUT-ÊTRE 👇
 export default User;

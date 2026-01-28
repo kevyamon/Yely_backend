@@ -1,4 +1,4 @@
-// backend/middleware/authMiddleware.js
+// middleware/authMiddleware.js
 import jwt from 'jsonwebtoken';
 import asyncHandler from './asyncHandler.js';
 import User from '../models/userModel.js';
@@ -7,10 +7,10 @@ import User from '../models/userModel.js';
 const protect = asyncHandler(async (req, res, next) => {
   let token;
 
-  // 1. Vérification Cookie (Priorité Sécurité)
+  // 1. Vérification Cookie (Priorité Sécurité Web)
   token = req.cookies.jwt;
 
-  // 2. Vérification Header (Priorité Compatibilité Render/Mobile)
+  // 2. Vérification Header (Priorité Compatibilité Mobile/Render)
   if (!token && req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     token = req.headers.authorization.split(' ')[1];
   }
@@ -19,6 +19,7 @@ const protect = asyncHandler(async (req, res, next) => {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       
+      // On exclut le mot de passe pour la sécurité
       req.user = await User.findById(decoded.userId).select('-password');
 
       if (!req.user) {
@@ -28,6 +29,7 @@ const protect = asyncHandler(async (req, res, next) => {
 
       next();
     } catch (error) {
+      console.error('Erreur token:', error);
       res.status(401);
       throw new Error('Token invalide ou expiré');
     }
@@ -37,9 +39,10 @@ const protect = asyncHandler(async (req, res, next) => {
   }
 });
 
-// Admin middleware
+// Admin middleware (CORRIGÉ : Vérifie le Rôle, pas isAdmin)
 const admin = (req, res, next) => {
-  if (req.user && req.user.isAdmin) {
+  // On accepte 'admin' OU 'superAdmin'
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'superAdmin')) {
     next();
   } else {
     res.status(401);
@@ -47,7 +50,7 @@ const admin = (req, res, next) => {
   }
 };
 
-// Driver middleware
+// Driver middleware (CORRIGÉ)
 const driverOnly = (req, res, next) => {
   if (req.user && req.user.role === 'driver') {
     next();

@@ -34,9 +34,7 @@ const userSchema = mongoose.Schema(
     },
 
     profilePicture: { type: String, default: '' },
-    role: {
-      type: String, enum: ['rider', 'driver', 'admin', 'superAdmin'], default: 'rider',
-    },
+    role: { type: String, enum: ['rider', 'driver', 'admin', 'superAdmin'], default: 'rider' },
     status: { type: String, enum: ['active', 'suspended', 'banned'], default: 'active' },
     wallet: { type: Number, default: 0 },
     isOnline: { type: Boolean, default: false },
@@ -53,18 +51,11 @@ const userSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// 🔥 MIDDLEWARE DE SÉCURITÉ (AVEC LOGS DE DÉBOGAGE)
+// Middleware de sécurité (Le fameux correctif)
 userSchema.pre('save', async function (next) {
-  // Log pour vérifier si le serveur a bien la nouvelle version
-  console.log(`🔒 SAVE CHECK pour ${this.email} | Password modifié ? ${this.isModified('password')}`);
-
-  // Si le mot de passe n'a pas changé, ON ARRÊTE TOUT (return) !
   if (!this.isModified('password')) { 
-    console.log("🛑 Mot de passe inchangé -> On ne touche à rien.");
     return next(); 
   }
-
-  console.log("🔑 Nouveau mot de passe détecté -> Hachage en cours...");
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
@@ -74,4 +65,6 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 };
 
 const User = mongoose.model('User', userSchema);
+
+// 👇 C'EST CETTE LIGNE QUI MANQUAIT PEUT-ÊTRE 👇
 export default User;

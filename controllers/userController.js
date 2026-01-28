@@ -20,8 +20,8 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Un compte avec cet email ou téléphone existe déjà');
   }
 
-  // 🔥 DÉTECTION ET FORÇAGE DU SUPERADMIN À L'INSCRIPTION
-  // On utilise ta variable d'environnement ADMIN_MAIL
+  // 🔥 DÉTECTION À L'INSCRIPTION
+  // On utilise ADMIN_MAIL pour être cohérent avec ta variable d'environnement
   const isSuperAdmin = email === process.env.ADMIN_MAIL;
   const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
 
@@ -34,7 +34,7 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (user) {
-    generateToken(res, user._id);
+    const token = generateToken(res, user._id);
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -42,13 +42,17 @@ const registerUser = asyncHandler(async (req, res) => {
       phone: user.phone,
       role: user.role,
       profilePicture: user.profilePicture,
-      token: generateToken(res, user._id), // Renvoi du token explicite
+      wallet: user.wallet,
+      subscription: user.subscription,
+      token,
     });
-    
-    if (isSuperAdmin) console.log('👑 SUPERADMIN CRÉÉ:', user.email);
+
+    if (isSuperAdmin) {
+      console.log('👑 SUPERADMIN CRÉÉ (Inscription):', user.email);
+    }
   } else {
     res.status(400);
-    throw new Error('Données invalides');
+    throw new Error('Données utilisateur invalides');
   }
 });
 
@@ -62,27 +66,29 @@ const loginUser = asyncHandler(async (req, res) => {
 
   if (user && (await user.matchPassword(password))) {
     
-    // 🔥 AUTO-PROMOTION : C'est ici que la magie opère !
-    // Si c'est ton email MAIS que tu n'as pas le rôle, on te le donne de force.
+    // 🔥 AUTO-PROMOTION DYNAMIQUE (LA CORRECTION EST ICI)
+    // Si c'est l'email du chef MAIS qu'il n'a pas le rôle, on corrige ça tout de suite !
     if (email === process.env.ADMIN_MAIL && user.role !== 'superAdmin') {
       user.role = 'superAdmin';
       await user.save();
-      console.log(`👑 AUTO-PROMOTION: ${user.name} est maintenant SuperAdmin.`);
+      console.log(`👑 AUTO-PROMOTION: ${user.name} est passé SuperAdmin à la connexion.`);
     }
 
-    generateToken(res, user._id);
+    // On génère le token APRES la mise à jour du rôle pour qu'il contienne les bons droits
+    const token = generateToken(res, user._id);
 
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
       phone: user.phone,
-      role: user.role, // Sera 'superAdmin' grâce à la correction juste au-dessus
+      role: user.role, // Ce sera 'superAdmin' maintenant
       profilePicture: user.profilePicture,
+      wallet: user.wallet,
+      subscription: user.subscription,
       driverId: user.driverId,
       vehicleInfo: user.vehicleInfo,
-      subscription: user.subscription,
-      wallet: user.wallet,
+      token,
     });
   } else {
     res.status(401);
@@ -98,14 +104,16 @@ const logoutUser = asyncHandler(async (req, res) => {
     httpOnly: true,
     expires: new Date(0),
   });
+
   res.status(200).json({ message: 'Déconnexion réussie' });
 });
 
-// @desc    Profil Utilisateur
+// @desc    Récupérer le profil
 // @route   GET /api/users/profile
 // @access  Private
 const getUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id).select('-password');
+
   if (user) {
     res.json(user);
   } else {
@@ -114,7 +122,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    Mise à jour Profil
+// @desc    Mettre à jour le profil
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = asyncHandler(async (req, res) => {
@@ -124,15 +132,26 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
+
     if (req.body.password) {
       user.password = req.body.password;
     }
+
+    if (req.body.vehicleInfo) {
+      user.vehicleInfo = req.body.vehicleInfo;
+    }
+
     const updatedUser = await user.save();
+
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
+      phone: updatedUser.phone,
       role: updatedUser.role,
+      profilePicture: updatedUser.profilePicture,
+      wallet: updatedUser.wallet,
+      subscription: updatedUser.subscription,
     });
   } else {
     res.status(404);

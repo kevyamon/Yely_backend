@@ -1,5 +1,4 @@
 // models/userModel.js
-
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -73,16 +72,14 @@ const userSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// 🔥 LA CORRECTION EST ICI 🔥
+// 🔥 LA CORRECTION EST JUSTE ICI 🔥
 userSchema.pre('save', async function (next) {
-  // AVANT (BUG) : if (!this.isModified('password')) { next(); } 
-  // -> Le code continuait à s'exécuter et re-hachait le mot de passe !
-
-  // MAINTENANT (CORRIGÉ) : on ajoute 'return'
+  // Si le mot de passe n'a pas changé, ON ARRÊTE TOUT (return) !
   if (!this.isModified('password')) { 
     return next(); 
   }
 
+  // On ne passe ici que si le mot de passe est nouveau
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });

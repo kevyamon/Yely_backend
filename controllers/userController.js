@@ -1,117 +1,126 @@
 // controllers/userController.js
-const asyncHandler = require('../middleware/asyncHandler');
-const User = require('../models/userModel');
-const generateToken = require('../utils/generateToken');
+import asyncHandler from '../middleware/asyncHandler.js';
+import User from '../models/userModel.js';
+import generateToken from '../utils/generateToken.js';
 
-// @desc    Auth user & get token
-// @route   POST /api/users/login
-// @access  Public
-const authUser = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = await User.findOne({ email });
-
-  if (user && (await user.matchPassword(password))) {
-    
-    // Mise à jour sécurisée sans déclencher les hooks pre-save (évite le double hachage)
-    // Optionnel : Si tu veux mettre à jour la date de dernière connexion, fais-le ici via updateOne
-    // await User.updateOne({ _id: user._id }, { $set: { lastLogin: new Date() } });
-
-    generateToken(res, user._id);
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role, // Critique pour ton frontend
-      isAdmin: user.isAdmin,
-      driverStatus: user.driverStatus,
-      subscription: user.subscription,
-      isVerified: user.isVerified,
-    });
-  } else {
-    res.status(401);
-    throw new Error('Email ou mot de passe invalide');
-  }
-});
-
-// @desc    Register a new user
-// @route   POST /api/users
+// @desc    Inscription
+// @route   POST /api/users/register
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, phone, password, role } = req.body;
 
-  const userExists = await User.findOne({ email });
-
-  if (userExists) {
+  if (!name || !email || !phone || !password) {
     res.status(400);
-    throw new Error('Cet utilisateur existe déjà');
+    throw new Error('Tous les champs sont requis');
   }
 
-  // Sécurisation du rôle à la création : seul un admin peut créer un admin directement
-  // Ici on force 'user' ou 'driver' par défaut si ce n'est pas spécifié
-  const userRole = role === 'driver' ? 'driver' : 'user';
+  const userExists = await User.findOne({ $or: [{ email }, { phone }] });
+  if (userExists) {
+    res.status(400);
+    throw new Error('Un compte avec cet email ou téléphone existe déjà');
+  }
+
+  // 🔥 DÉTECTION AUTOMATIQUE DU SUPERADMIN (Restauration)
+  const isSuperAdmin = email === process.env.ADMIN_MAIL;
+  const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
 
   const user = await User.create({
     name,
     email,
+    phone,
     password,
-    role: userRole,
-    driverStatus: userRole === 'driver' ? 'pending' : 'none'
+    role: finalRole,
   });
 
   if (user) {
-    generateToken(res, user._id);
+    const token = generateToken(res, user._id); // Génération du token
 
     res.status(201).json({
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
-      isAdmin: user.isAdmin,
-      driverStatus: user.driverStatus,
+      profilePicture: user.profilePicture,
+      wallet: user.wallet,
+      subscription: user.subscription,
+      token,
     });
+
+    if (isSuperAdmin) {
+      console.log('👑 SUPERADMIN CRÉÉ (Inscription):', user.email);
+    }
   } else {
     res.status(400);
     throw new Error('Données utilisateur invalides');
   }
 });
 
-// @desc    Logout user / clear cookie
-// @route   POST /api/users/logout
+// @desc    Connexion
+// @route   POST /api/users/login
 // @access  Public
-const logoutUser = (req, res) => {
-  res.cookie('jwt', '', {
-    httpOnly: true,
-    expires: new Date(0),
-  });
-  res.status(200).json({ message: 'Déconnexion réussie' });
-};
+const loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-// @desc    Get user profile
-// @route   GET /api/users/profile
-// @access  Private
-const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = await User.findOne({ email });
 
-  if (user) {
+  if (user && (await user.matchPassword(password))) {
+    
+    // 🔥 AUTO-PROMOTION DYNAMIQUE (Restauration)
+    if (email === process.env.ADMIN_MAIL && user.role !== 'superAdmin') {
+      user.role = 'superAdmin';
+      await user.save(); // Le bug du double hash est réglé dans le modèle, donc c'est safe ici.
+      console.log(`👑 AUTO-PROMOTION: ${user.name} est passé SuperAdmin à la connexion.`);
+    }
+
+    const token = generateToken(res, user._id);
+
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
-      isAdmin: user.isAdmin,
-      driverStatus: user.driverStatus,
+      profilePicture: user.profilePicture,
+      wallet: user.wallet,
       subscription: user.subscription,
-      isVerified: user.isVerified
+      driverId: user.driverId,
+      vehicleInfo: user.vehicleInfo,
+      token,
     });
+  } else {
+    res.status(401);
+    throw new Error('Email ou mot de passe incorrect');
+  }
+});
+
+// @desc    Déconnexion
+// @route   POST /api/users/logout
+// @access  Private
+const logoutUser = asyncHandler(async (req, res) => {
+  res.cookie('jwt', '', {
+    httpOnly: true,
+    expires: new Date(0),
+  });
+
+  res.status(200).json({ message: 'Déconnexion réussie' });
+});
+
+// @desc    Récupérer le profil
+// @route   GET /api/users/profile
+// @access  Private
+const getUserProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id).select('-password');
+
+  if (user) {
+    res.json(user);
   } else {
     res.status(404);
     throw new Error('Utilisateur non trouvé');
   }
 });
 
-// @desc    Update user profile
+// @desc    Mettre à jour le profil
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = asyncHandler(async (req, res) => {
@@ -120,14 +129,15 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
+    user.phone = req.body.phone || user.phone;
 
     if (req.body.password) {
       user.password = req.body.password;
     }
 
-    // Gestion des mises à jour spécifiques (ex: drivers)
-    if(req.body.license) user.documents = { ...user.documents, license: req.body.license };
-    // ... autres champs si nécessaire
+    if (req.body.vehicleInfo) {
+      user.vehicleInfo = req.body.vehicleInfo;
+    }
 
     const updatedUser = await user.save();
 
@@ -135,10 +145,12 @@ const updateUserProfile = asyncHandler(async (req, res) => {
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
+      phone: updatedUser.phone,
       role: updatedUser.role,
-      isAdmin: updatedUser.isAdmin,
-      driverStatus: updatedUser.driverStatus,
-      subscription: updatedUser.subscription
+      profilePicture: updatedUser.profilePicture,
+      wallet: updatedUser.wallet,
+      subscription: updatedUser.subscription,
+      token: generateToken(res, updatedUser._id),
     });
   } else {
     res.status(404);
@@ -146,9 +158,10 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = {
-  authUser,
+// EXPORT ES MODULES (C'est ça qui corrige l'erreur)
+export {
   registerUser,
+  loginUser,
   logoutUser,
   getUserProfile,
   updateUserProfile,

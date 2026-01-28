@@ -73,8 +73,16 @@ const userSchema = mongoose.Schema(
   { timestamps: true }
 );
 
+// 🔥 LA CORRECTION EST ICI 🔥
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) { next(); }
+  // AVANT (BUG) : if (!this.isModified('password')) { next(); } 
+  // -> Le code continuait à s'exécuter et re-hachait le mot de passe !
+
+  // MAINTENANT (CORRIGÉ) : on ajoute 'return'
+  if (!this.isModified('password')) { 
+    return next(); 
+  }
+
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });

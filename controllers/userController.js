@@ -20,11 +20,9 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Un compte avec cet email ou téléphone existe déjà');
   }
 
-  // Détection SuperAdmin à l'inscription
   const isSuperAdmin = email === process.env.ADMIN_MAIL;
   const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
 
-  // Ici on utilise .create() qui déclenche .save() => Hachage normal du mot de passe
   const user = await User.create({
     name,
     email,
@@ -35,7 +33,6 @@ const registerUser = asyncHandler(async (req, res) => {
 
   if (user) {
     const token = generateToken(res, user._id);
-
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -47,10 +44,6 @@ const registerUser = asyncHandler(async (req, res) => {
       subscription: user.subscription,
       token,
     });
-
-    if (isSuperAdmin) {
-      console.log('👑 SUPERADMIN CRÉÉ (Inscription):', user.email);
-    }
   } else {
     res.status(400);
     throw new Error('Données utilisateur invalides');
@@ -67,11 +60,10 @@ const loginUser = asyncHandler(async (req, res) => {
 
   if (user && (await user.matchPassword(password))) {
     
-    // 🔥 AUTO-PROMOTION SÉCURISÉE (Via updateOne)
+    // Auto-promotion sécurisée
     if (email === process.env.ADMIN_MAIL && user.role !== 'superAdmin') {
       await User.updateOne({ _id: user._id }, { $set: { role: 'superAdmin' } });
-      user.role = 'superAdmin'; // Mise à jour locale pour la réponse JSON
-      console.log(`👑 AUTO-PROMOTION: ${user.name} est passé SuperAdmin à la connexion.`);
+      user.role = 'superAdmin'; 
     }
 
     const token = generateToken(res, user._id);
@@ -103,7 +95,6 @@ const logoutUser = asyncHandler(async (req, res) => {
     httpOnly: true,
     expires: new Date(0),
   });
-
   res.status(200).json({ message: 'Déconnexion réussie' });
 });
 
@@ -112,7 +103,6 @@ const logoutUser = asyncHandler(async (req, res) => {
 // @access  Private
 const getUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id).select('-password');
-
   if (user) {
     res.json(user);
   } else {
@@ -132,8 +122,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
 
-    // Si le mot de passe change, on utilise .save() pour déclencher le hachage
-    if (req.body.password) {
+    // CORRECTION CRITIQUE : On ne touche au mot de passe que s'il est EXPLICITEMENT fourni et non vide
+    if (req.body.password && req.body.password.trim() !== '') {
       user.password = req.body.password;
     }
 
@@ -141,6 +131,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
       user.vehicleInfo = req.body.vehicleInfo;
     }
 
+    // Ici on garde .save() car si l'utilisateur VEUT changer son mot de passe, il faut que le hash se fasse.
+    // Le "Vaccin" dans userModel.js protégera contre un re-hash accidentel si password n'a pas changé.
     const updatedUser = await user.save();
 
     res.json({

@@ -1,67 +1,39 @@
-// backend/controllers/userController.js
+// controllers/userController.js
 import asyncHandler from '../middleware/asyncHandler.js';
 import User from '../models/userModel.js';
 import generateToken from '../utils/generateToken.js';
 
-// @desc    Auth user & get token
-// @route   POST /api/users/auth
-// @access  Public
-const authUser = asyncHandler(async (req, res) => {
-  const { emailOrPhone, password } = req.body;
-
-  // On cherche par email OU par téléphone
-  const user = await User.findOne({
-    $or: [{ email: emailOrPhone }, { phone: emailOrPhone }]
-  });
-
-  if (user && (await user.matchPassword(password))) {
-    // On génère le token ET on le récupère dans une variable
-    const token = generateToken(res, user._id);
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone, // Déjà présent, on garde
-      role: user.role,
-      token: token, // Important pour le mode hybride
-      driverId: user.driverId,
-      vehicleInfo: user.vehicleInfo,
-      subscription: user.subscription
-    });
-  } else {
-    res.status(401);
-    throw new Error('Email ou mot de passe incorrect');
-  }
-});
-
-// @desc    Register a new user
-// @route   POST /api/users
+// @desc    Inscription
+// @route   POST /api/users/register
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, phone, password, role, vehicleModel, vehiclePlate, vehicleColor } = req.body;
+  const { name, email, phone, password, role } = req.body;
 
+  // Vérification des champs
+  if (!name || !email || !phone || !password) {
+    res.status(400);
+    throw new Error('Tous les champs sont requis');
+  }
+
+  // Vérifier si l'utilisateur existe déjà
   const userExists = await User.findOne({ $or: [{ email }, { phone }] });
-
   if (userExists) {
     res.status(400);
-    throw new Error('Cet utilisateur existe déjà');
+    throw new Error('Un compte avec cet email ou téléphone existe déjà');
   }
 
-  // Création conditionnelle selon le rôle
-  let userData = { name, email, phone, password, role };
+  // 🔥 DÉTECTION AUTOMATIQUE DU SUPERADMIN
+  const isSuperAdmin = email === process.env.SUPERADMIN_MAIL;
+  const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
 
-  // Si c'est un chauffeur, on ajoute ses infos véhicule
-  if (role === 'driver') {
-    userData.driverId = `DRI-${Date.now().toString().slice(-6)}`; // ID unique simple
-    userData.vehicleInfo = {
-      model: vehicleModel,
-      plate: vehiclePlate,
-      color: vehicleColor
-    };
-  }
-
-  const user = await User.create(userData);
+  // Créer l'utilisateur
+  const user = await User.create({
+    name,
+    email,
+    phone,
+    password,
+    role: finalRole,
+  });
 
   if (user) {
     const token = generateToken(res, user._id);
@@ -70,53 +42,81 @@ const registerUser = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
-      phone: user.phone, // <--- AJOUTÉ ICI (C'était le manquant !)
+      phone: user.phone,
       role: user.role,
-      token: token, 
-      driverId: user.driverId,
-      vehicleInfo: user.vehicleInfo
+      profilePicture: user.profilePicture,
+      wallet: user.wallet,
+      subscription: user.subscription,
+      token,
     });
+
+    // 👑 Log de confirmation
+    if (isSuperAdmin) {
+      console.log('👑 SUPERADMIN CRÉÉ:', user.email);
+    }
   } else {
     res.status(400);
-    throw new Error('Données invalides');
+    throw new Error('Données utilisateur invalides');
   }
 });
 
-// @desc    Logout user / clear cookie
-// @route   POST /api/users/logout
+// @desc    Connexion
+// @route   POST /api/users/login
 // @access  Public
-const logoutUser = (req, res) => {
-  res.cookie('jwt', '', {
-    httpOnly: true,
-    expires: new Date(0),
-  });
-  res.status(200).json({ message: 'Déconnexion réussie' });
-};
+const loginUser = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
 
-// @desc    Get user profile
-// @route   GET /api/users/profile
-// @access  Private
-const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = await User.findOne({ email });
 
-  if (user) {
+  if (user && (await user.matchPassword(password))) {
+    const token = generateToken(res, user._id);
+
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
-      phone: user.phone, // <--- AJOUTÉ ICI AUSSI
+      phone: user.phone,
       role: user.role,
+      profilePicture: user.profilePicture,
+      wallet: user.wallet,
+      subscription: user.subscription,
       driverId: user.driverId,
       vehicleInfo: user.vehicleInfo,
-      subscription: user.subscription
+      token,
     });
+  } else {
+    res.status(401);
+    throw new Error('Email ou mot de passe incorrect');
+  }
+});
+
+// @desc    Déconnexion
+// @route   POST /api/users/logout
+// @access  Private
+const logoutUser = asyncHandler(async (req, res) => {
+  res.cookie('jwt', '', {
+    httpOnly: true,
+    expires: new Date(0),
+  });
+
+  res.status(200).json({ message: 'Déconnexion réussie' });
+});
+
+// @desc    Récupérer le profil
+// @route   GET /api/users/profile
+// @access  Private
+const getUserProfile = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id).select('-password');
+
+  if (user) {
+    res.json(user);
   } else {
     res.status(404);
     throw new Error('Utilisateur non trouvé');
   }
 });
 
-// @desc    Update user profile
+// @desc    Mettre à jour le profil
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = asyncHandler(async (req, res) => {
@@ -125,23 +125,27 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
-    // On pourrait aussi permettre de changer le tel, mais attention aux doublons
-    // Pour l'instant on garde name/email/pass
-    
+    user.phone = req.body.phone || user.phone;
+
     if (req.body.password) {
       user.password = req.body.password;
     }
 
+    if (req.body.vehicleInfo) {
+      user.vehicleInfo = req.body.vehicleInfo;
+    }
+
     const updatedUser = await user.save();
-    
+
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
-      phone: updatedUser.phone, // <--- AJOUTÉ ICI POUR METTRE À JOUR LE STORE REDUX
+      phone: updatedUser.phone,
       role: updatedUser.role,
-      driverId: updatedUser.driverId,
-      vehicleInfo: updatedUser.vehicleInfo,
+      profilePicture: updatedUser.profilePicture,
+      wallet: updatedUser.wallet,
+      subscription: updatedUser.subscription,
     });
   } else {
     res.status(404);
@@ -150,8 +154,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 });
 
 export {
-  authUser,
   registerUser,
+  loginUser,
   logoutUser,
   getUserProfile,
   updateUserProfile,

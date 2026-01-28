@@ -1,27 +1,29 @@
 // routes/subscriptionRoutes.js
-
 import express from 'express';
-const router = express.Router();
-import { protect } from '../middleware/authMiddleware.js';
-import { submitProof, checkStatus } from '../controllers/subscriptionController.js';
-
-// Configuration Multer pour Cloudinary
 import multer from 'multer';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
-import cloudinary from '../config/cloudinary.js'; // Assure-toi que ce fichier existe
+import { protect } from '../middleware/authMiddleware.js';
+import { submitSubscriptionProof } from '../controllers/subscriptionController.js';
+import { getSubscriptionStatus } from '../controllers/subscriptionStatusController.js';
+import { decrementSubscriptionTime } from '../middleware/subscriptionDecrementMiddleware.js';
 
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'yely_proofs', // Dossier dans Cloudinary
-    allowed_formats: ['jpg', 'png', 'jpeg'],
-  },
-});
+const router = express.Router();
 
-const upload = multer({ storage: storage });
+// Configuration Multer SIMPLE (Stockage temporaire sur le disque)
+// C'est ce qu'il faut pour que ton controller puisse utiliser 'req.file.path' avec 'fs'
+const upload = multer({ dest: 'uploads/' });
 
-// Routes
-router.post('/submit-proof', protect, upload.single('proofImage'), submitProof);
-router.get('/status', protect, checkStatus);
+router.post(
+  '/submit-proof',
+  protect,
+  upload.single('proofImage'), 
+  submitSubscriptionProof
+);
+
+router.get(
+  '/status',
+  protect,
+  decrementSubscriptionTime,
+  getSubscriptionStatus
+);
 
 export default router;

@@ -1,74 +1,51 @@
-// kevyamon/yely_backend/controllers/subscriptionController.js
-import asyncHandler from '../middleware/asyncHandler.js'; // Note le .js à la fin !
+// controllers/subscriptionController.js
+
+import asyncHandler from '../middleware/asyncHandler.js';
 import Transaction from '../models/transactionModel.js';
-import cloudinary from '../config/cloudinary.js';
-import fs from 'fs';
+import User from '../models/userModel.js';
+// Assure-toi d'avoir un utilitaire d'upload ou utilise cloudinary directement ici si besoin
+// Pour simplifier, on suppose que le middleware 'upload' a déjà mis l'image dans req.file.path
 
 // @desc    Soumettre une preuve de paiement
 // @route   POST /api/subscription/submit-proof
-// @access  Private (Driver only)
-const submitSubscriptionProof = asyncHandler(async (req, res) => {
-  const { type, paymentPhoneNumber } = req.body;
-
+// @access  Private
+const submitProof = asyncHandler(async (req, res) => {
+  const { type, paymentPhone, amount } = req.body;
+  
   if (!req.file) {
     res.status(400);
-    throw new Error('La capture d\'écran est obligatoire.');
+    throw new Error('Une image de preuve est requise');
   }
 
-  if (!type || !paymentPhoneNumber) {
-    res.status(400);
-    throw new Error('Le type d\'abonnement et le numéro de paiement sont requis.');
-  }
-
-  let amount = 0;
-  let assignedTo = '';
-  const isPromoActive = process.env.IS_PROMO_ACTIVE === 'true';
-
+  // 1. Déterminer à qui assigner la tâche
+  let assignedTo = 'PARTNER'; // Par défaut (Mensuel)
   if (type === 'WEEKLY') {
-    amount = isPromoActive ? 1000 : 1200;
-    assignedTo = 'SUPERADMIN';
-  } else if (type === 'MONTHLY') {
-    amount = isPromoActive ? 5000 : 6000;
-    assignedTo = 'PARTNER';
-  } else {
-    // Nettoyage si erreur
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    res.status(400);
-    throw new Error('Type d\'abonnement invalide.');
+    assignedTo = 'SUPERADMIN'; // Hebdo va au SuperAdmin
   }
 
-  try {
-    const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: 'yely_pending_proofs',
-      use_filename: true,
-    });
+  // 2. Créer la transaction
+  const transaction = await Transaction.create({
+    driver: req.user._id,
+    type: type, // 'WEEKLY' ou 'MONTHLY'
+    amount: amount,
+    paymentPhone: paymentPhone,
+    proofImage: req.file.path, // URL Cloudinary (via Multer-Storage-Cloudinary)
+    proofImagePublicId: req.file.filename, // ID pour suppression future
+    status: 'PENDING',
+    assignedTo: assignedTo
+  });
 
-    const transaction = await Transaction.create({
-      driver: req.user._id,
-      amount,
-      type,
-      paymentPhoneNumber,
-      proofImageUrl: result.secure_url,
-      proofImagePublicId: result.public_id,
-      assignedTo,
-      status: 'PENDING',
-    });
-
-    fs.unlinkSync(req.file.path);
-
-    res.status(201).json({
-      success: true,
-      message: 'Preuve reçue ! En attente de validation.',
-      transaction,
-    });
-
-  } catch (error) {
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    res.status(500);
-    throw new Error('Erreur upload: ' + error.message);
-  }
+  res.status(201).json({
+    message: 'Preuve reçue avec succès',
+    transaction
+  });
 });
 
-export { submitSubscriptionProof };
+// @desc    Vérifier le statut (pour le polling frontend)
+// @route   GET /api/subscription/status
+const checkStatus = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id).select('subscription');
+  res.json(user.subscription);
+});
+
+export { submitProof, checkStatus };

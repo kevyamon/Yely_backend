@@ -9,24 +9,22 @@ import generateToken from '../utils/generateToken.js';
 const registerUser = asyncHandler(async (req, res) => {
   const { name, email, phone, password, role } = req.body;
 
-  // Vérification des champs
   if (!name || !email || !phone || !password) {
     res.status(400);
     throw new Error('Tous les champs sont requis');
   }
 
-  // Vérifier si l'utilisateur existe déjà
   const userExists = await User.findOne({ $or: [{ email }, { phone }] });
   if (userExists) {
     res.status(400);
     throw new Error('Un compte avec cet email ou téléphone existe déjà');
   }
 
-  // 🔥 DÉTECTION AUTOMATIQUE DU SUPERADMIN
-  const isSuperAdmin = email === process.env.SUPERADMIN_MAIL;
+  // 🔥 DÉTECTION ET FORÇAGE DU SUPERADMIN À L'INSCRIPTION
+  // On utilise ta variable d'environnement ADMIN_MAIL
+  const isSuperAdmin = email === process.env.ADMIN_MAIL;
   const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
 
-  // Créer l'utilisateur
   const user = await User.create({
     name,
     email,
@@ -36,8 +34,7 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (user) {
-    const token = generateToken(res, user._id);
-
+    generateToken(res, user._id);
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -45,18 +42,13 @@ const registerUser = asyncHandler(async (req, res) => {
       phone: user.phone,
       role: user.role,
       profilePicture: user.profilePicture,
-      wallet: user.wallet,
-      subscription: user.subscription,
-      token,
+      token: generateToken(res, user._id), // Renvoi du token explicite
     });
-
-    // 👑 Log de confirmation
-    if (isSuperAdmin) {
-      console.log('👑 SUPERADMIN CRÉÉ:', user.email);
-    }
+    
+    if (isSuperAdmin) console.log('👑 SUPERADMIN CRÉÉ:', user.email);
   } else {
     res.status(400);
-    throw new Error('Données utilisateur invalides');
+    throw new Error('Données invalides');
   }
 });
 
@@ -69,20 +61,28 @@ const loginUser = asyncHandler(async (req, res) => {
   const user = await User.findOne({ email });
 
   if (user && (await user.matchPassword(password))) {
-    const token = generateToken(res, user._id);
+    
+    // 🔥 AUTO-PROMOTION : C'est ici que la magie opère !
+    // Si c'est ton email MAIS que tu n'as pas le rôle, on te le donne de force.
+    if (email === process.env.ADMIN_MAIL && user.role !== 'superAdmin') {
+      user.role = 'superAdmin';
+      await user.save();
+      console.log(`👑 AUTO-PROMOTION: ${user.name} est maintenant SuperAdmin.`);
+    }
+
+    generateToken(res, user._id);
 
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
       phone: user.phone,
-      role: user.role,
+      role: user.role, // Sera 'superAdmin' grâce à la correction juste au-dessus
       profilePicture: user.profilePicture,
-      wallet: user.wallet,
-      subscription: user.subscription,
       driverId: user.driverId,
       vehicleInfo: user.vehicleInfo,
-      token,
+      subscription: user.subscription,
+      wallet: user.wallet,
     });
   } else {
     res.status(401);
@@ -98,16 +98,14 @@ const logoutUser = asyncHandler(async (req, res) => {
     httpOnly: true,
     expires: new Date(0),
   });
-
   res.status(200).json({ message: 'Déconnexion réussie' });
 });
 
-// @desc    Récupérer le profil
+// @desc    Profil Utilisateur
 // @route   GET /api/users/profile
 // @access  Private
 const getUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id).select('-password');
-
   if (user) {
     res.json(user);
   } else {
@@ -116,7 +114,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    Mettre à jour le profil
+// @desc    Mise à jour Profil
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = asyncHandler(async (req, res) => {
@@ -126,26 +124,15 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
-
     if (req.body.password) {
       user.password = req.body.password;
     }
-
-    if (req.body.vehicleInfo) {
-      user.vehicleInfo = req.body.vehicleInfo;
-    }
-
     const updatedUser = await user.save();
-
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
-      phone: updatedUser.phone,
       role: updatedUser.role,
-      profilePicture: updatedUser.profilePicture,
-      wallet: updatedUser.wallet,
-      subscription: updatedUser.subscription,
     });
   } else {
     res.status(404);

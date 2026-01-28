@@ -1,28 +1,24 @@
 // routes/userRoutes.js
 import express from 'express';
 const router = express.Router();
-
-// CORRECTION ICI : J'ai retiré 'authUser' qui n'existe pas dans ce fichier
 import {
   registerUser,
+  loginUser,
   logoutUser,
   getUserProfile,
-} from '../controllers/userController.js';
+  updateUserProfile
+} from '../controllers/userController.js'; // On importe tout du fichier propre
 
-import { authUserWithSuperAdminDetection } from '../controllers/userControllerUpdate.js';
-import { protect, admin } from '../middleware/authMiddleware.js';
-import { decrementSubscriptionTime } from '../middleware/subscriptionDecrementMiddleware.js';
+import { protect } from '../middleware/authMiddleware.js';
 
-// Route pour l'inscription (Register)
-router.route('/').post(registerUser);
-
-// Route pour la connexion (Login) avec ta détection spéciale SuperAdmin
-router.post('/login', authUserWithSuperAdminDetection);
-
-// Route pour la déconnexion
+// Routes Publiques
+router.post('/', registerUser);
+router.post('/login', loginUser); // On utilise le loginUser "intelligent" ici
 router.post('/logout', logoutUser);
 
-// Route pour le profil (Lecture seule ici selon ton code)
-router.route('/profile').get(protect, decrementSubscriptionTime, getUserProfile);
+// Routes Privées (Nécessite connexion)
+router.route('/profile')
+  .get(protect, getUserProfile)
+  .put(protect, updateUserProfile);
 
 export default router;

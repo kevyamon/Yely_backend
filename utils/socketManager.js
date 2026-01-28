@@ -1,52 +1,72 @@
-// backend/utils/socketManager.js
-let io;
+// utils/socketManager.js
+import { Server } from 'socket.io';
+import User from '../models/userModel.js';
+import Ride from '../models/rideModel.js';
 
 const socketManager = {
-  init: (socketIoInstance) => {
-    io = socketIoInstance;
+  io: null,
+  
+  init: (io) => {
+    socketManager.io = io;
     
     io.on('connection', (socket) => {
-      console.log(`⚡ Connexion réseau Yély : ${socket.id}`);
+      console.log(`🔌 Nouvelle connexion Socket: ${socket.id}`);
 
-      // Chauffeur rejoint sa zone de travail
-      socket.on('joinZone', (zoneId) => {
-        socket.join(zoneId);
-      });
-
-      // 🟢 CORRECTION ICI : On accepte 'coordinates' (envoyé par le front)
-      socket.on('updateLocation', (data) => {
-        const { rideId, coordinates } = data; 
-        // On relaie exactement ce qu'on reçoit
-        if (rideId && coordinates) {
-            socket.to(rideId).emit('driverLocationUpdate', coordinates);
+      socket.on('join_user', async (userId) => {
+        socket.join(userId);
+        console.log(`👤 User ${userId} a rejoint sa room.`);
+        
+        // CORRECTION MAJEURE : Utilisation de updateOne au lieu de save()
+        // Cela empêche formellement la corruption du mot de passe
+        try {
+          await User.updateOne(
+            { _id: userId },
+            { $set: { isOnline: true } }
+          );
+        } catch (error) {
+          console.error("Erreur update status online:", error);
         }
       });
 
-      // Rejoindre le canal d'un trajet spécifique
-      socket.on('joinRide', (rideId) => {
-        socket.join(rideId);
+      socket.on('update_location', async (data) => {
+        // data: { userId, lat, lng, role }
+        const { userId, lat, lng, role } = data;
+        
+        try {
+            await User.updateOne(
+                { _id: userId },
+                { 
+                    $set: { 
+                        currentLocation: {
+                            type: 'Point',
+                            coordinates: [lng, lat] // Mongo: [Long, Lat]
+                        }
+                    }
+                }
+            );
+        } catch (error) {
+            // Silent fail pour perf
+        }
       });
 
-      socket.on('joinAdminRoom', () => {
-        socket.join('admin_room');
+      socket.on('disconnect', async () => {
+        console.log(`❌ Déconnexion Socket: ${socket.id}`);
+        // Note: Pour gérer le offline, il faudrait mapper socket.id -> userId
       });
 
-      socket.on('disconnect', () => {
-        console.log('🔌 Déconnexion du réseau Yély');
-      });
     });
   },
 
-  notifyNewRide: (zoneId, rideData) => {
-    if (io) io.to(zoneId).emit('newRideAvailable', rideData);
+  emitToUser: (userId, event, data) => {
+    if (socketManager.io) {
+      socketManager.io.to(userId).emit(event, data);
+    }
   },
 
-  broadcastAdminUpdate: (type, data) => {
-    if (io) io.to('admin_room').emit('dashboardUpdate', { type, data });
-  },
-
-  sendSystemMessage: (rideId, message) => {
-    if (io) io.to(rideId).emit('systemAlert', { message });
+  emitToAll: (event, data) => {
+      if (socketManager.io) {
+          socketManager.io.emit(event, data);
+      }
   }
 };
 

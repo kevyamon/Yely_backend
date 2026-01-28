@@ -1,92 +1,69 @@
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-
-const pushSubscriptionSchema = new mongoose.Schema({
-  endpoint: { type: String, required: true },
-  keys: {
-    p256dh: { type: String, required: true },
-    auth: { type: String, required: true },
-  },
-});
+// models/userModel.js
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 const userSchema = mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true },
-    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
-    phone: { type: String, required: true, unique: true, trim: true },
-    password: { type: String, required: true },
-    
-    driverId: {
+    name: {
       type: String,
+      required: true,
+    },
+    email: {
+      type: String,
+      required: true,
       unique: true,
-      sparse: true,
-      trim: true
     },
-    vehicleInfo: {
-      model: { type: String },
-      plate: { type: String },
-      color: { type: String },
+    password: {
+      type: String,
+      required: true,
     },
-    
-    subscription: {
-      status: { 
-        type: String, 
-        enum: ['active', 'inactive'],
-        default: 'inactive' 
-      },
-      plan: { 
-        type: String, 
-        enum: ['WEEKLY', 'MONTHLY', 'none'], 
-        default: 'none' 
-      },
-      remainingHours: { type: Number, default: 0 },
-      totalHours: { type: Number, default: 0 },
-      lastCheckTime: { type: Date, default: null },
-      activatedAt: { type: Date, default: null }
-    },
-
-    profilePicture: { type: String, default: '' },
     role: {
       type: String,
-      enum: ['rider', 'driver', 'admin', 'superAdmin'],
-      default: 'rider',
+      enum: ['user', 'driver', 'admin', 'superAdmin'],
+      default: 'user',
     },
-    status: {
+    isAdmin: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
+    isVerified: { // Pour les admins/drivers validés par SuperAdmin
+      type: Boolean,
+      default: false
+    },
+    driverStatus: { // status spécifique aux chauffeurs
       type: String,
-      enum: ['active', 'suspended', 'banned'],
-      default: 'active',
+      enum: ['pending', 'approved', 'rejected', 'none'],
+      default: 'none'
     },
-    wallet: { type: Number, default: 0 },
-    isOnline: { type: Boolean, default: false },
-    
-    currentLocation: {
-      type: { type: String, enum: ['Point'], default: 'Point' },
-      coordinates: { type: [Number], index: '2dsphere' },
+    documents: { // Documents du chauffeur
+      license: String,
+      registration: String,
+      insurance: String,
+      vehiclePhotos: [String]
     },
-    
-    pushSubscriptions: [pushSubscriptionSchema],
-    resetPasswordToken: String,
-    resetPasswordExpire: Date,
+    subscription: {
+        status: { type: String, enum: ['active', 'inactive', 'expired'], default: 'inactive' },
+        plan: { type: String, enum: ['jour', 'semaine', 'mois'], default: null },
+        expiresAt: { type: Date, default: null },
+        lastPaymentDate: { type: Date, default: null }
+    }
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-// 🔥 MIDDLEWARE PRE-SAVE CORRIGÉ (Protection anti-double-hash)
+// VACCIN CONTRE LE DOUBLE HACHAGE
 userSchema.pre('save', async function (next) {
-  // Si le mot de passe n'a pas été modifié, on skip
+  // Si le mot de passe n'a pas été modifié, on ne fait rien !
   if (!this.isModified('password')) {
     return next();
   }
 
-  // Protection anti-double-hash : si c'est déjà un hash bcrypt, on skip
-  if (this.password && (this.password.startsWith('$2a$') || this.password.startsWith('$2b$'))) {
-    return next();
-  }
-
-  // Seulement maintenant, on hash le nouveau mot de passe
+  // Sinon, on crypte
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-  next();
 });
 
 userSchema.methods.matchPassword = async function (enteredPassword) {
@@ -94,4 +71,5 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 };
 
 const User = mongoose.model('User', userSchema);
-export default User;
+
+module.exports = User;

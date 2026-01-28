@@ -1,4 +1,5 @@
-// backend/routes/rideRoutes.js
+// routes/rideRoutes.js
+
 import express from 'express';
 const router = express.Router();
 import { 
@@ -10,12 +11,13 @@ import {
   completeRide 
 } from '../controllers/rideController.js';
 import { protect } from '../middleware/authMiddleware.js';
+import { decrementSubscriptionTime } from '../middleware/subscriptionDecrementMiddleware.js';
 
-router.route('/').post(protect, createRide);
-router.route('/history').get(protect, getRideHistory);
-router.route('/:id/accept').put(protect, acceptRide);
-router.route('/:id/decline').put(protect, declineRide);
-router.route('/:id/start').put(protect, startRide);
-router.route('/:id/complete').put(protect, completeRide);
+router.route('/').post(protect, decrementSubscriptionTime, createRide);
+router.route('/history').get(protect, decrementSubscriptionTime, getRideHistory);
+router.route('/:id/accept').put(protect, decrementSubscriptionTime, acceptRide);
+router.route('/:id/decline').put(protect, decrementSubscriptionTime, declineRide);
+router.route('/:id/start').put(protect, decrementSubscriptionTime, startRide);
+router.route('/:id/complete').put(protect, decrementSubscriptionTime, completeRide);
 
 export default router;

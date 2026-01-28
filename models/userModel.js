@@ -1,4 +1,5 @@
-// backend/models/userModel.js
+// models/userModel.js
+
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -17,36 +18,34 @@ const userSchema = mongoose.Schema(
     phone: { type: String, required: true, unique: true, trim: true },
     password: { type: String, required: true },
     
-    // --- ID TAXI & INFOS VOITURE ---
     driverId: {
       type: String,
       unique: true,
-      sparse: true, // Permet aux clients d'avoir ce champ vide sans bug
+      sparse: true,
       trim: true
     },
     vehicleInfo: {
-      model: { type: String }, // ex: Toyota Corolla
-      plate: { type: String }, // ex: 1234 XY 01
-      color: { type: String }, // ex: Jaune
+      model: { type: String },
+      plate: { type: String },
+      color: { type: String },
     },
     
-    // --- NOUVEAU : GESTION ABONNEMENT (SaaS) ---
-    // C'est ici qu'on gère le "Mur" (Payer pour travailler)
     subscription: {
       status: { 
         type: String, 
-        enum: ['active', 'inactive', 'grace_period'], // grace_period = tolérance de quelques heures
+        enum: ['active', 'inactive'],
         default: 'inactive' 
       },
       plan: { 
         type: String, 
-        enum: ['daily', 'weekly', 'none'], 
+        enum: ['WEEKLY', 'MONTHLY', 'none'], 
         default: 'none' 
       },
-      expiresAt: { type: Date, default: null }, // Date précise de la fin (ex: demain 14h30)
-      lastPaymentDate: { type: Date, default: null }
+      remainingHours: { type: Number, default: 0 },
+      totalHours: { type: Number, default: 0 },
+      lastCheckTime: { type: Date, default: null },
+      activatedAt: { type: Date, default: null }
     },
-    // -------------------------------------------
 
     profilePicture: { type: String, default: '' },
     role: {
@@ -62,10 +61,9 @@ const userSchema = mongoose.Schema(
     wallet: { type: Number, default: 0 },
     isOnline: { type: Boolean, default: false },
     
-    // Géolocalisation (Indispensable pour la map)
     currentLocation: {
       type: { type: String, enum: ['Point'], default: 'Point' },
-      coordinates: { type: [Number], index: '2dsphere' }, // [Longitude, Latitude]
+      coordinates: { type: [Number], index: '2dsphere' },
     },
     
     pushSubscriptions: [pushSubscriptionSchema],
@@ -75,7 +73,6 @@ const userSchema = mongoose.Schema(
   { timestamps: true }
 );
 
-// Hachage du mot de passe
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) { next(); }
   const salt = await bcrypt.genSalt(10);

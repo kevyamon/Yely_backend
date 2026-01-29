@@ -5,7 +5,7 @@ const userSchema = mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
+       required: true,
     },
     email: {
       type: String,
@@ -49,6 +49,7 @@ const userSchema = mongoose.Schema(
     currentLocation: {
       type: {
         type: String,
+   
         default: 'Point',
       },
       coordinates: {

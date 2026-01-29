@@ -1,48 +1,74 @@
-// controllers/userController.js
 import asyncHandler from '../middleware/asyncHandler.js';
 import User from '../models/userModel.js';
 import generateToken from '../utils/generateToken.js';
+// Note: bcrypt n'est plus nécessaire ici car géré par le modèle, 
+// mais je le laisse si tu as d'autres fonctions futures qui en auraient besoin, 
+// sinon tu peux retirer l'import. Pour l'instant, je le retire pour être propre.
 
-// @desc    Inscription
-// @route   POST /api/users/register
+// @desc    Auth user & get token
+// @route   POST /api/users/auth
+// @access  Public
+const authUser = asyncHandler(async (req, res) => {
+  const { email, password, fcmToken } = req.body;
+
+  const user = await User.findOne({ email });
+
+  if (user && (await user.matchPassword(password))) {
+    // Mise à jour du token FCM à la connexion si fourni
+    if (fcmToken) {
+      user.fcmToken = fcmToken;
+      await user.save();
+    }
+
+    generateToken(res, user._id);
+
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      driverStatus: user.driverStatus,
+      isAvailable: user.isAvailable,
+      subscription: user.subscription
+    });
+  } else {
+    res.status(401);
+    throw new Error('Email ou mot de passe invalide');
+  }
+});
+
+// @desc    Register a new user
+// @route   POST /api/users
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, phone, password, role } = req.body;
+  const { name, email, password, role } = req.body;
 
-  if (!name || !email || !phone || !password) {
-    res.status(400);
-    throw new Error('Tous les champs sont requis');
-  }
+  const userExists = await User.findOne({ email });
 
-  const userExists = await User.findOne({ $or: [{ email }, { phone }] });
   if (userExists) {
     res.status(400);
-    throw new Error('Un compte avec cet email ou téléphone existe déjà');
+    throw new Error('Cet utilisateur existe déjà');
   }
 
-  const isSuperAdmin = email === process.env.ADMIN_MAIL;
-  const finalRole = isSuperAdmin ? 'superAdmin' : (role || 'rider');
-
+  // CORRECTION MAJEURE : On passe le mot de passe BRUT.
+  // Le middleware pre('save') du modèle User va s'occuper du hachage.
   const user = await User.create({
     name,
     email,
-    phone,
-    password,
-    role: finalRole,
+    password, 
+    role: role || 'user',
   });
 
   if (user) {
-    const token = generateToken(res, user._id);
+    generateToken(res, user._id);
+
     res.status(201).json({
       _id: user._id,
       name: user.name,
       email: user.email,
-      phone: user.phone,
       role: user.role,
-      profilePicture: user.profilePicture,
-      wallet: user.wallet,
-      subscription: user.subscription,
-      token,
+      driverStatus: user.driverStatus,
+      subscription: user.subscription
     });
   } else {
     res.status(400);
@@ -50,68 +76,42 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    Connexion
-// @route   POST /api/users/login
-// @access  Public
-const loginUser = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = await User.findOne({ email });
-
-  if (user && (await user.matchPassword(password))) {
-    
-    // Auto-promotion sécurisée
-    if (email === process.env.ADMIN_MAIL && user.role !== 'superAdmin') {
-      await User.updateOne({ _id: user._id }, { $set: { role: 'superAdmin' } });
-      user.role = 'superAdmin'; 
-    }
-
-    const token = generateToken(res, user._id);
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      profilePicture: user.profilePicture,
-      wallet: user.wallet,
-      subscription: user.subscription,
-      driverId: user.driverId,
-      vehicleInfo: user.vehicleInfo,
-      token,
-    });
-  } else {
-    res.status(401);
-    throw new Error('Email ou mot de passe incorrect');
-  }
-});
-
-// @desc    Déconnexion
+// @desc    Logout user / clear cookie
 // @route   POST /api/users/logout
-// @access  Private
-const logoutUser = asyncHandler(async (req, res) => {
+// @access  Public
+const logoutUser = (req, res) => {
   res.cookie('jwt', '', {
     httpOnly: true,
     expires: new Date(0),
   });
   res.status(200).json({ message: 'Déconnexion réussie' });
-});
+};
 
-// @desc    Récupérer le profil
+// @desc    Get user profile
 // @route   GET /api/users/profile
 // @access  Private
 const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id).select('-password');
+  const user = await User.findById(req.user._id);
+
   if (user) {
-    res.json(user);
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      driverStatus: user.driverStatus,
+      isAvailable: user.isAvailable,
+      currentLocation: user.currentLocation,
+      subscription: user.subscription,
+      documents: user.documents
+    });
   } else {
     res.status(404);
     throw new Error('Utilisateur non trouvé');
   }
 });
 
-// @desc    Mettre à jour le profil
+// @desc    Update user profile
 // @route   PUT /api/users/profile
 // @access  Private
 const updateUserProfile = asyncHandler(async (req, res) => {
@@ -120,31 +120,109 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
-    user.phone = req.body.phone || user.phone;
 
-    // CORRECTION CRITIQUE : On ne touche au mot de passe que s'il est EXPLICITEMENT fourni et non vide
-    if (req.body.password && req.body.password.trim() !== '') {
-      user.password = req.body.password;
+    if (req.body.password) {
+      user.password = req.body.password; 
+      // Ici aussi, le middleware pre('save') détectera le changement et hachera
     }
 
-    if (req.body.vehicleInfo) {
-      user.vehicleInfo = req.body.vehicleInfo;
+    // Mise à jour de la position si fournie (pour les chauffeurs surtout)
+    if (req.body.latitude && req.body.longitude) {
+      user.currentLocation = {
+        type: 'Point',
+        coordinates: [req.body.longitude, req.body.latitude],
+      };
+    }
+    
+    // Mise à jour de la disponibilité
+    if (req.body.isAvailable !== undefined) {
+      user.isAvailable = req.body.isAvailable;
+    }
+    
+    // Mise à jour du token FCM
+    if (req.body.fcmToken) {
+      user.fcmToken = req.body.fcmToken;
     }
 
-    // Ici on garde .save() car si l'utilisateur VEUT changer son mot de passe, il faut que le hash se fasse.
-    // Le "Vaccin" dans userModel.js protégera contre un re-hash accidentel si password n'a pas changé.
     const updatedUser = await user.save();
 
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
-      phone: updatedUser.phone,
       role: updatedUser.role,
-      profilePicture: updatedUser.profilePicture,
-      wallet: updatedUser.wallet,
-      subscription: updatedUser.subscription,
-      token: generateToken(res, updatedUser._id),
+      driverStatus: updatedUser.driverStatus,
+      isAvailable: updatedUser.isAvailable,
+      currentLocation: updatedUser.currentLocation,
+      subscription: updatedUser.subscription
+    });
+  } else {
+    res.status(404);
+    throw new Error('Utilisateur non trouvé');
+  }
+});
+
+// @desc    Get all users (Admin only)
+// @route   GET /api/users
+// @access  Private/Admin
+const getUsers = asyncHandler(async (req, res) => {
+  const users = await User.find({});
+  res.json(users);
+});
+
+// @desc    Delete user
+// @route   DELETE /api/users/:id
+// @access  Private/Admin
+const deleteUser = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id);
+
+  if (user) {
+    await user.deleteOne();
+    res.json({ message: 'Utilisateur supprimé' });
+  } else {
+    res.status(404);
+    throw new Error('Utilisateur non trouvé');
+  }
+});
+
+// @desc    Get user by ID
+// @route   GET /api/users/:id
+// @access  Private/Admin
+const getUserById = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id).select('-password');
+
+  if (user) {
+    res.json(user);
+  } else {
+    res.status(404);
+    throw new Error('Utilisateur non trouvé');
+  }
+});
+
+// @desc    Update user
+// @route   PUT /api/users/:id
+// @access  Private/Admin
+const updateUser = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id);
+
+  if (user) {
+    user.name = req.body.name || user.name;
+    user.email = req.body.email || user.email;
+    user.role = req.body.role || user.role; // Admin peut changer le rôle
+    
+    // Admin peut approuver/rejeter un chauffeur
+    if (req.body.driverStatus) {
+      user.driverStatus = req.body.driverStatus;
+    }
+
+    const updatedUser = await user.save();
+
+    res.json({
+      _id: updatedUser._id,
+      name: updatedUser.name,
+      email: updatedUser.email,
+      role: updatedUser.role,
+      driverStatus: updatedUser.driverStatus,
     });
   } else {
     res.status(404);
@@ -153,9 +231,13 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 });
 
 export {
+  authUser,
   registerUser,
-  loginUser,
   logoutUser,
   getUserProfile,
   updateUserProfile,
+  getUsers,
+  deleteUser,
+  getUserById,
+  updateUser,
 };

@@ -3,7 +3,7 @@ const router = express.Router();
 
 import {
   registerUser,
-  loginUser,
+  authUser, // CORRECTION : loginUser devient authUser pour correspondre au contrôleur
   logoutUser,
   getUserProfile,
   updateUserProfile
@@ -16,7 +16,8 @@ import { decrementSubscriptionTime } from '../middleware/subscriptionDecrementMi
 router.route('/').post(registerUser);
 
 // Route Connexion
-router.post('/login', loginUser);
+// Note : On garde le chemin '/login' pour la compatibilité frontend, mais on utilise le contrôleur authUser
+router.post('/login', authUser);
 
 // Route Déconnexion
 router.post('/logout', logoutUser);

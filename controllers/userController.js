@@ -3,59 +3,67 @@ import asyncHandler from '../middleware/asyncHandler.js';
 import User from '../models/userModel.js';
 import generateToken from '../utils/generateToken.js';
 
-// @desc    Auth user & get token
-// @route   POST /api/users/auth
+// @desc    Auth user & get token (Login Blindé)
+// @route   POST /api/users/login
 // @access  Public
 const authUser = asyncHandler(async (req, res) => {
-  console.log('--- 🕵️ TENTATIVE DE CONNEXION (DEBUG) ---');
-  console.log('1. Body reçu du Frontend:', req.body);
-
   const { email, password, fcmToken } = req.body;
 
+  console.log('--- 🕵️ DEBUG LOGIN AVANCÉ ---');
+  console.log('1. Donnée reçue (email/phone):', email);
+
+  // Sécurité : Si le champ est vide
+  if (!email || !password) {
+    res.status(400);
+    throw new Error('Veuillez fournir un email/téléphone et un mot de passe');
+  }
+
   let user;
-  
-  // Normalisation de l'entrée (Email ou Téléphone ?)
-  if (email && email.includes('@')) {
-    const emailClean = email.toLowerCase().trim();
-    console.log(`2. Recherche par EMAIL: "${emailClean}"`);
-    user = await User.findOne({ email: emailClean });
-  } else if (email) {
-    // Cas où l'utilisateur a mis son téléphone dans le champ email
-    const phoneClean = email.trim();
-    console.log(`2. Recherche par TÉLÉPHONE (via champ email): "${phoneClean}"`);
-    user = await User.findOne({ phone: phoneClean });
-  } else if (req.body.phone) {
-    // Cas où le frontend envoie explicitement un champ "phone"
-    const phoneClean = req.body.phone.trim();
-    console.log(`2. Recherche par TÉLÉPHONE DIRECT: "${phoneClean}"`);
-    user = await User.findOne({ phone: phoneClean });
-  }
+  const loginInput = email.trim(); // On enlève les espaces parasites début/fin
 
-  // LOG DU RÉSULTAT DE LA RECHERCHE
-  if (!user) {
-    console.log('❌ UTILISATEUR NON TROUVÉ en base de données.');
-    res.status(401);
-    throw new Error('Compte inexistant');
+  // EST-CE UN EMAIL ? (Contient @)
+  if (loginInput.includes('@')) {
+    console.log(`2. Mode EMAIL détecté. Recherche flexible sur : "${loginInput}"`);
+    
+    // RECHERCHE PUISSANTE (Regex) : Insensible à la casse (i)
+    // Cela trouvera "Moi@gmail.com" même si on envoie "moi@gmail.com"
+    user = await User.findOne({ 
+      email: { $regex: new RegExp(`^${loginInput}$`, 'i') } 
+    });
+
   } else {
-    console.log('✅ UTILISATEUR TROUVÉ:', user.email);
-    console.log('🔑 Hash en base (début):', user.password.substring(0, 10) + '...');
+    // EST-CE UN TÉLÉPHONE ?
+    console.log(`2. Mode TÉLÉPHONE détecté. Recherche sur : "${loginInput}"`);
+    
+    // Pour le téléphone, on cherche exactement ou on peut aussi utiliser un regex
+    user = await User.findOne({ phone: loginInput });
   }
 
-  // TENTATIVE DE COMPARAISON MOT DE PASSE
-  console.log('3. Vérification du mot de passe...');
-  const isMatch = await user.matchPassword(password);
-  console.log('📝 Résultat comparaison:', isMatch ? '✅ SUCCÈS' : '❌ ÉCHEC (Mauvais mot de passe)');
+  // DIAGNOSTIC RÉSULTAT RECHERCHE
+  if (!user) {
+    console.log('❌ ÉCHEC RECHERCHE : Aucun utilisateur trouvé avec ces critères.');
+    // Astuce de Debug : On affiche si un user proche existe (pour comprendre)
+    if (loginInput.includes('@')) {
+        const check = await User.findOne({ email: loginInput.toLowerCase() });
+        console.log('   (Test lowercase strict:', check ? 'TROUVÉ' : 'NON TROUVÉ', ')');
+    }
+    res.status(401);
+    throw new Error('Compte introuvable. Vérifiez l\'email ou le téléphone.');
+  } 
 
-  if (isMatch) {
-    // Mise à jour Token FCM
+  console.log(`✅ SUCCÈS : Utilisateur trouvé [${user.email}] (ID: ${user._id})`);
+
+  // VÉRIFICATION MOT DE PASSE
+  if (await user.matchPassword(password)) {
+    console.log('🔓 Mot de passe valide. Connexion autorisée.');
+    
+    // Mise à jour FCM
     if (fcmToken) {
-      console.log('4. Mise à jour FCM Token');
       user.fcmToken = fcmToken;
       await user.save();
     }
 
     const token = generateToken(res, user._id);
-    console.log('5. Génération Token réussie. Envoi réponse JSON.');
 
     res.json({
       _id: user._id,
@@ -67,9 +75,11 @@ const authUser = asyncHandler(async (req, res) => {
       isAvailable: user.isAvailable,
       subscription: user.subscription,
       documents: user.documents,
-      token: token 
+      token: token // Indispensable pour le Front
     });
+
   } else {
+    console.log('⛔ ÉCHEC MOT DE PASSE : Le hash ne correspond pas.');
     res.status(401);
     throw new Error('Mot de passe incorrect');
   }
@@ -80,20 +90,24 @@ const authUser = asyncHandler(async (req, res) => {
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
   const { name, email, phone, password, role } = req.body;
-  
-  console.log('--- 📝 TENTATIVE INSCRIPTION ---');
-  console.log('Données:', { name, email, phone, role });
 
+  // Normalisation stricte à l'inscription
   const normalizedEmail = email ? email.toLowerCase().trim() : null;
   const normalizedPhone = phone ? phone.trim() : null;
 
-  const userExists = await User.findOne({ 
-    $or: [{ email: normalizedEmail }, { phone: normalizedPhone }] 
-  });
+  // Vérification doublon Email OU Téléphone
+  const query = [];
+  if (normalizedEmail) query.push({ email: normalizedEmail });
+  if (normalizedPhone) query.push({ phone: normalizedPhone });
+
+  let userExists = null;
+  if (query.length > 0) {
+    userExists = await User.findOne({ $or: query });
+  }
 
   if (userExists) {
     res.status(400);
-    const msg = userExists.email === normalizedEmail 
+    const msg = (normalizedEmail && userExists.email === normalizedEmail)
       ? 'Cet email est déjà utilisé.' 
       : 'Ce numéro de téléphone est déjà utilisé.';
     throw new Error(msg);
@@ -101,7 +115,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
   const user = await User.create({
     name,
-    email: normalizedEmail,
+    email: normalizedEmail, // On sauve propre
     phone: normalizedPhone,
     password, 
     role: role || 'user', 
@@ -112,9 +126,7 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (user) {
-    console.log('✅ Inscription réussie. ID:', user._id);
     const token = generateToken(res, user._id);
-
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -131,8 +143,8 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 });
 
-// ... LE RESTE DU FICHIER RESTE STRICTEMENT IDENTIQUE ...
-// Je te remets la suite pour ne pas casser le fichier en copiant
+// ... LE RESTE NE CHANGE PAS ...
+// Je te remets tout pour le copier-coller facile
 
 const logoutUser = (req, res) => {
   res.cookie('jwt', '', {
@@ -144,7 +156,6 @@ const logoutUser = (req, res) => {
 
 const getUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
-
   if (user) {
     res.json({
       _id: user._id,
@@ -166,30 +177,19 @@ const getUserProfile = asyncHandler(async (req, res) => {
 
 const updateUserProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.user._id);
-
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
-
-    if (req.body.password) {
-      user.password = req.body.password; 
-    }
-
+    if (req.body.password) user.password = req.body.password; 
     if (req.body.latitude && req.body.longitude) {
       user.currentLocation = {
         type: 'Point',
         coordinates: [req.body.longitude, req.body.latitude],
       };
     }
-    
-    if (req.body.isAvailable !== undefined) {
-      user.isAvailable = req.body.isAvailable;
-    }
-    
-    if (req.body.fcmToken) {
-      user.fcmToken = req.body.fcmToken;
-    }
+    if (req.body.isAvailable !== undefined) user.isAvailable = req.body.isAvailable;
+    if (req.body.fcmToken) user.fcmToken = req.body.fcmToken;
 
     const updatedUser = await user.save();
     const token = generateToken(res, updatedUser._id);
@@ -245,9 +245,7 @@ const updateUser = asyncHandler(async (req, res) => {
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
     user.role = req.body.role || user.role;
-    if (req.body.driverStatus) {
-      user.driverStatus = req.body.driverStatus;
-    }
+    if (req.body.driverStatus) user.driverStatus = req.body.driverStatus;
     const updatedUser = await user.save();
     res.json({
       _id: updatedUser._id,

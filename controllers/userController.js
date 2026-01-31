@@ -57,12 +57,17 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error('Un utilisateur avec cet email existe déjà');
   }
 
-  // 2. Création (Le middleware pre('save') va hacher le mot de passe ici)
+  // 2. Création avec initialisation FORCÉE de la géolocalisation
+  // C'est ici que se trouve le FIX pour l'erreur "Can't extract geo keys"
   const user = await User.create({
     name,
     email,
     password, 
-    role: role || 'user', // Par défaut 'user' si non spécifié
+    role: role || 'user', 
+    currentLocation: {
+      type: 'Point',
+      coordinates: [0, 0] // Initialisation explicite pour satisfaire l'index 2dsphere
+    }
   });
 
   if (user) {
@@ -246,4 +251,4 @@ export {
   deleteUser,
   getUserById,
   updateUser,
-};  
+};

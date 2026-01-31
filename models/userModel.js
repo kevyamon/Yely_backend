@@ -1,3 +1,4 @@
+// backend/models/userModel.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -5,7 +6,7 @@ const userSchema = mongoose.Schema(
   {
     name: {
       type: String,
-       required: true,
+      required: true,
     },
     email: {
       type: String,
@@ -49,7 +50,6 @@ const userSchema = mongoose.Schema(
     currentLocation: {
       type: {
         type: String,
-   
         default: 'Point',
       },
       coordinates: {
@@ -92,14 +92,15 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 
 // Middleware pour hacher le mot de passe avant de sauvegarder
 userSchema.pre('save', async function (next) {
-  // Si le mot de passe n'a pas été modifié, on passe
+  // CORRECTION CRITIQUE : Si le mot de passe n'est pas modifié, on SORT IMMÉDIATEMENT.
   if (!this.isModified('password')) {
-    next();
+    return next();
   }
 
   // Sinon, on génère un sel et on hache
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
+  next();
 });
 
 const User = mongoose.model('User', userSchema);

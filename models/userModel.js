@@ -12,12 +12,14 @@ const userSchema = mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      trim: true,      // Supprime les espaces avant/après
+      lowercase: true, // Force tout en minuscule (Kevin@Test.com -> kevin@test.com)
     },
-    // AJOUT DU CHAMP PHONE
     phone: {
       type: String,
       required: true, 
       unique: true,
+      trim: true,
     },
     password: {
       type: String,
@@ -25,7 +27,6 @@ const userSchema = mongoose.Schema(
     },
     role: {
       type: String,
-      // AJOUT DE 'rider' dans l'enum pour accepter le payload du frontend
       enum: ['user', 'rider', 'driver', 'admin', 'superadmin'],
       default: 'user',
     },
@@ -42,13 +43,12 @@ const userSchema = mongoose.Schema(
     licensePlate: {
       type: String,
     },
-    // Pour gérer les documents des chauffeurs (URL Cloudinary)
     documents: {
       idCard: String,
       driverLicense: String,
       vehicleRegistration: String,
       insurance: String,
-      photo: String, // Photo de profil/véhicule
+      photo: String,
     },
     isAvailable: {
       type: Boolean,
@@ -60,7 +60,7 @@ const userSchema = mongoose.Schema(
         default: 'Point',
       },
       coordinates: {
-        type: [Number], // [longitude, latitude]
+        type: [Number],
         default: [0, 0],
       },
     },
@@ -69,7 +69,7 @@ const userSchema = mongoose.Schema(
     },
     subscription: {
       plan: {
-        type: String, // 'standard', 'gold', 'platinum'
+        type: String,
         default: null
       },
       startDate: Date,
@@ -89,15 +89,12 @@ const userSchema = mongoose.Schema(
   }
 );
 
-// Index géospatial pour la recherche de chauffeurs à proximité
 userSchema.index({ currentLocation: '2dsphere' });
 
-// Méthode pour vérifier le mot de passe
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
 
-// Middleware pour hacher le mot de passe avant de sauvegarder
 userSchema.pre('save', async function (next) {
   if (!this.isModified('password')) {
     return next();

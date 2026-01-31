@@ -7,28 +7,55 @@ import generateToken from '../utils/generateToken.js';
 // @route   POST /api/users/auth
 // @access  Public
 const authUser = asyncHandler(async (req, res) => {
+  console.log('--- 🕵️ TENTATIVE DE CONNEXION (DEBUG) ---');
+  console.log('1. Body reçu du Frontend:', req.body);
+
   const { email, password, fcmToken } = req.body;
 
   let user;
-
-  // Logique Hybride : Email ou Téléphone
+  
+  // Normalisation de l'entrée (Email ou Téléphone ?)
   if (email && email.includes('@')) {
-    user = await User.findOne({ email: email.toLowerCase().trim() });
-  } else {
-    // Recherche par téléphone (avec ou sans nettoyage selon tes données)
-    user = await User.findOne({ phone: email });
+    const emailClean = email.toLowerCase().trim();
+    console.log(`2. Recherche par EMAIL: "${emailClean}"`);
+    user = await User.findOne({ email: emailClean });
+  } else if (email) {
+    // Cas où l'utilisateur a mis son téléphone dans le champ email
+    const phoneClean = email.trim();
+    console.log(`2. Recherche par TÉLÉPHONE (via champ email): "${phoneClean}"`);
+    user = await User.findOne({ phone: phoneClean });
+  } else if (req.body.phone) {
+    // Cas où le frontend envoie explicitement un champ "phone"
+    const phoneClean = req.body.phone.trim();
+    console.log(`2. Recherche par TÉLÉPHONE DIRECT: "${phoneClean}"`);
+    user = await User.findOne({ phone: phoneClean });
   }
 
-  if (user && (await user.matchPassword(password))) {
-    
+  // LOG DU RÉSULTAT DE LA RECHERCHE
+  if (!user) {
+    console.log('❌ UTILISATEUR NON TROUVÉ en base de données.');
+    res.status(401);
+    throw new Error('Compte inexistant');
+  } else {
+    console.log('✅ UTILISATEUR TROUVÉ:', user.email);
+    console.log('🔑 Hash en base (début):', user.password.substring(0, 10) + '...');
+  }
+
+  // TENTATIVE DE COMPARAISON MOT DE PASSE
+  console.log('3. Vérification du mot de passe...');
+  const isMatch = await user.matchPassword(password);
+  console.log('📝 Résultat comparaison:', isMatch ? '✅ SUCCÈS' : '❌ ÉCHEC (Mauvais mot de passe)');
+
+  if (isMatch) {
     // Mise à jour Token FCM
     if (fcmToken) {
+      console.log('4. Mise à jour FCM Token');
       user.fcmToken = fcmToken;
       await user.save();
     }
 
-    // CRUCIAL : On récupère le token string ici
     const token = generateToken(res, user._id);
+    console.log('5. Génération Token réussie. Envoi réponse JSON.');
 
     res.json({
       _id: user._id,
@@ -40,11 +67,11 @@ const authUser = asyncHandler(async (req, res) => {
       isAvailable: user.isAvailable,
       subscription: user.subscription,
       documents: user.documents,
-      token: token // <--- AJOUT MAJEUR : Le frontend a besoin de ça !
+      token: token 
     });
   } else {
     res.status(401);
-    throw new Error('Email/Téléphone ou mot de passe incorrect');
+    throw new Error('Mot de passe incorrect');
   }
 });
 
@@ -53,6 +80,9 @@ const authUser = asyncHandler(async (req, res) => {
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
   const { name, email, phone, password, role } = req.body;
+  
+  console.log('--- 📝 TENTATIVE INSCRIPTION ---');
+  console.log('Données:', { name, email, phone, role });
 
   const normalizedEmail = email ? email.toLowerCase().trim() : null;
   const normalizedPhone = phone ? phone.trim() : null;
@@ -82,7 +112,7 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (user) {
-    // CRUCIAL : On récupère le token string ici aussi
+    console.log('✅ Inscription réussie. ID:', user._id);
     const token = generateToken(res, user._id);
 
     res.status(201).json({
@@ -93,7 +123,7 @@ const registerUser = asyncHandler(async (req, res) => {
       role: user.role,
       driverStatus: user.driverStatus,
       subscription: user.subscription,
-      token: token // <--- AJOUT MAJEUR
+      token: token
     });
   } else {
     res.status(400);
@@ -101,7 +131,8 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 });
 
-// ... LE RESTE EST INCHANGÉ MAIS JE LE REMETS POUR LE COPIER-COLLER SANS ERREUR ...
+// ... LE RESTE DU FICHIER RESTE STRICTEMENT IDENTIQUE ...
+// Je te remets la suite pour ne pas casser le fichier en copiant
 
 const logoutUser = (req, res) => {
   res.cookie('jwt', '', {
@@ -161,9 +192,6 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     }
 
     const updatedUser = await user.save();
-
-    // On renvoie aussi le token ici au cas où le frontend en a besoin pour rafraîchir
-    // (optionnel mais recommandé)
     const token = generateToken(res, updatedUser._id);
 
     res.json({

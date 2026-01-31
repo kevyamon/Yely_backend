@@ -3,36 +3,32 @@ import asyncHandler from '../middleware/asyncHandler.js';
 import User from '../models/userModel.js';
 import generateToken from '../utils/generateToken.js';
 
-// @desc    Auth user & get token (Login)
+// @desc    Auth user & get token
 // @route   POST /api/users/auth
 // @access  Public
 const authUser = asyncHandler(async (req, res) => {
-  // On récupère "email" du body, mais l'utilisateur peut avoir tapé son téléphone dedans
   const { email, password, fcmToken } = req.body;
 
   let user;
 
-  // LOGIQUE INTELLIGENTE : Email ou Téléphone ?
-  // Si ça contient un @, on traite comme un email
+  // Logique Hybride : Email ou Téléphone
   if (email && email.includes('@')) {
     user = await User.findOne({ email: email.toLowerCase().trim() });
   } else {
-    // Sinon, on essaie de trouver par téléphone
-    // (On cherche tel quel, ou tu peux ajouter une logique de nettoyage si besoin)
+    // Recherche par téléphone (avec ou sans nettoyage selon tes données)
     user = await User.findOne({ phone: email });
   }
 
-  // Vérification
   if (user && (await user.matchPassword(password))) {
     
-    // Mise à jour Token FCM (Notification)
+    // Mise à jour Token FCM
     if (fcmToken) {
       user.fcmToken = fcmToken;
-      // Le save ici ne re-hachera PAS le mot de passe grâce au fix du modèle
       await user.save();
     }
 
-    generateToken(res, user._id);
+    // CRUCIAL : On récupère le token string ici
+    const token = generateToken(res, user._id);
 
     res.json({
       _id: user._id,
@@ -43,7 +39,8 @@ const authUser = asyncHandler(async (req, res) => {
       driverStatus: user.driverStatus,
       isAvailable: user.isAvailable,
       subscription: user.subscription,
-      documents: user.documents
+      documents: user.documents,
+      token: token // <--- AJOUT MAJEUR : Le frontend a besoin de ça !
     });
   } else {
     res.status(401);
@@ -57,11 +54,9 @@ const authUser = asyncHandler(async (req, res) => {
 const registerUser = asyncHandler(async (req, res) => {
   const { name, email, phone, password, role } = req.body;
 
-  // Normalisation des entrées pour éviter les doublons "Kevin" vs "kevin"
   const normalizedEmail = email ? email.toLowerCase().trim() : null;
   const normalizedPhone = phone ? phone.trim() : null;
 
-  // Vérification existence
   const userExists = await User.findOne({ 
     $or: [{ email: normalizedEmail }, { phone: normalizedPhone }] 
   });
@@ -74,7 +69,6 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error(msg);
   }
 
-  // Création
   const user = await User.create({
     name,
     email: normalizedEmail,
@@ -88,7 +82,8 @@ const registerUser = asyncHandler(async (req, res) => {
   });
 
   if (user) {
-    generateToken(res, user._id);
+    // CRUCIAL : On récupère le token string ici aussi
+    const token = generateToken(res, user._id);
 
     res.status(201).json({
       _id: user._id,
@@ -97,7 +92,8 @@ const registerUser = asyncHandler(async (req, res) => {
       phone: user.phone,
       role: user.role,
       driverStatus: user.driverStatus,
-      subscription: user.subscription
+      subscription: user.subscription,
+      token: token // <--- AJOUT MAJEUR
     });
   } else {
     res.status(400);
@@ -105,8 +101,7 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 });
 
-// ... LE RESTE DU FICHIER NE CHANGE PAS (logoutUser, getUserProfile, etc.)
-// Je remets logoutUser pour que le fichier soit copiable en entier sans erreur d'accolade
+// ... LE RESTE EST INCHANGÉ MAIS JE LE REMETS POUR LE COPIER-COLLER SANS ERREUR ...
 
 const logoutUser = (req, res) => {
   res.cookie('jwt', '', {
@@ -167,6 +162,10 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 
     const updatedUser = await user.save();
 
+    // On renvoie aussi le token ici au cas où le frontend en a besoin pour rafraîchir
+    // (optionnel mais recommandé)
+    const token = generateToken(res, updatedUser._id);
+
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,
@@ -176,7 +175,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
       driverStatus: updatedUser.driverStatus,
       isAvailable: updatedUser.isAvailable,
       currentLocation: updatedUser.currentLocation,
-      subscription: updatedUser.subscription
+      subscription: updatedUser.subscription,
+      token: token
     });
   } else {
     res.status(404);
@@ -191,7 +191,6 @@ const getUsers = asyncHandler(async (req, res) => {
 
 const deleteUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
-
   if (user) {
     await user.deleteOne();
     res.json({ message: 'Utilisateur supprimé' });
@@ -213,19 +212,15 @@ const getUserById = asyncHandler(async (req, res) => {
 
 const updateUser = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);
-
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
     user.phone = req.body.phone || user.phone;
     user.role = req.body.role || user.role;
-    
     if (req.body.driverStatus) {
       user.driverStatus = req.body.driverStatus;
     }
-
     const updatedUser = await user.save();
-
     res.json({
       _id: updatedUser._id,
       name: updatedUser.name,

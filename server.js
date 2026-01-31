@@ -1,5 +1,4 @@
-// server.js
-
+// backend/server.js
 import path from 'path';
 import express from 'express';
 import dotenv from 'dotenv';
@@ -37,6 +36,7 @@ connectDB();
 
 const app = express();
 
+// CRUCIAL POUR RENDER : Faire confiance au proxy pour les cookies sécurisés
 app.set('trust proxy', 1);
 
 const port = process.env.PORT || 5000;
@@ -54,21 +54,42 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
+// --- CONFIGURATION CORS BLINDÉE (MODIFICATION ICI) ---
+const allowedOrigins = [
+  process.env.FRONTEND_URL,          // Ton .env
+  'https://yely-frontend.onrender.com', // Ton Front en Prod
+  'http://localhost:5173',           // Vite Local
+  'http://localhost:3000'            // Autre local
+];
+
 const corsOptions = {
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
-    'https://yely-frontend.onrender.com',
-    'http://localhost:3000'
-  ],
-  credentials: true,
+  origin: function (origin, callback) {
+    // Autoriser les requêtes sans origine (Mobile Apps, Postman, Curl)
+    if (!origin) return callback(null, true);
+    
+    // Vérifier si l'origine est dans la liste
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      return callback(null, true);
+    } else {
+      console.log('Bloqué par CORS:', origin); // Log pour débugger si besoin
+      return callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // INDISPENSABLE pour les cookies
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
 };
+
 app.use(cors(corsOptions));
 
 const server = http.createServer(app);
+
+// Configuration Socket.IO alignée avec CORS
 const io = new Server(server, {
   cors: {
-    origin: corsOptions.origin,
+    origin: corsOptions.origin, // On réutilise la même logique
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
@@ -89,11 +110,13 @@ if (!fs.existsSync(uploadDir)){
     console.log('📁 Dossier uploads créé avec succès.');
 }
 
+// --- TES ROUTES ORIGINALES (INCHANGÉES) ---
 app.use('/api/users', userRoutes);
 app.use('/api/rides', rideRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
-app.use('/api/subscription', subscriptionRoutes);
+// Attention : Tu avais 'subscription' au singulier ici, je garde TA version
+app.use('/api/subscription', subscriptionRoutes); 
 app.use('/api/admin/validations', adminValidationRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 

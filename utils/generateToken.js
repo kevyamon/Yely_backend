@@ -6,16 +6,16 @@ const generateToken = (res, userId) => {
     expiresIn: '30d',
   });
 
-  // On configure le Cookie HTTP-Only (Sécurité maximale)
+  // Configuration du Cookie (Sécurité)
   res.cookie('jwt', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV !== 'development', // Secure en prod (Render)
-    sameSite: 'strict', // Protection CSRF
+    secure: process.env.NODE_ENV !== 'development', // Secure en prod (https)
+    sameSite: process.env.NODE_ENV === 'development' ? 'lax' : 'none', // 'none' est CRUCIAL pour le cross-site sur Render
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 jours
   });
 
-  // CRUCIAL : On RETOURNE le token pour pouvoir l'envoyer aussi en JSON !
-  return token; 
+  // IMPORTANT : On retourne le token pour pouvoir l'envoyer dans le JSON
+  return token;
 };
 
 export default generateToken;

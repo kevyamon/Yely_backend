@@ -18,24 +18,23 @@ const authUser = asyncHandler(async (req, res) => {
     // 3. Mise à jour propre du FCM Token si présent
     if (fcmToken) {
       user.fcmToken = fcmToken;
-      // Le middleware pre('save') dans le modèle va détecter que 'password' n'a pas changé
-      // et ne va PAS le re-hacher grâce au fix "return next()".
       await user.save();
     }
 
     // 4. Générer le token
     generateToken(res, user._id);
 
-    // 5. Renvoyer les infos (SANS le mot de passe)
+    // 5. Renvoyer les infos
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone, // On renvoie aussi le téléphone
       role: user.role,
       driverStatus: user.driverStatus,
       isAvailable: user.isAvailable,
       subscription: user.subscription,
-      documents: user.documents // Utile pour savoir s'il a déjà uploadé ses docs
+      documents: user.documents 
     });
   } else {
     res.status(401);
@@ -47,26 +46,33 @@ const authUser = asyncHandler(async (req, res) => {
 // @route   POST /api/users
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, email, password, role } = req.body;
+  // AJOUT : On récupère aussi 'phone' du body
+  const { name, email, phone, password, role } = req.body;
 
-  // 1. Vérification existence
-  const userExists = await User.findOne({ email });
+  // 1. Vérification existence (Email OU Téléphone)
+  const userExists = await User.findOne({ 
+    $or: [{ email }, { phone }] 
+  });
 
   if (userExists) {
     res.status(400);
-    throw new Error('Un utilisateur avec cet email existe déjà');
+    // Petit message d'erreur plus précis
+    const msg = userExists.email === email 
+      ? 'Un utilisateur avec cet email existe déjà' 
+      : 'Un utilisateur avec ce numéro de téléphone existe déjà';
+    throw new Error(msg);
   }
 
-  // 2. Création avec initialisation FORCÉE de la géolocalisation
-  // C'est ici que se trouve le FIX pour l'erreur "Can't extract geo keys"
+  // 2. Création avec le téléphone et la géolocalisation forcée
   const user = await User.create({
     name,
     email,
+    phone, // On enregistre le téléphone
     password, 
     role: role || 'user', 
     currentLocation: {
       type: 'Point',
-      coordinates: [0, 0] // Initialisation explicite pour satisfaire l'index 2dsphere
+      coordinates: [0, 0] 
     }
   });
 
@@ -78,6 +84,7 @@ const registerUser = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
       driverStatus: user.driverStatus,
       subscription: user.subscription
@@ -110,6 +117,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
       _id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
       role: user.role,
       driverStatus: user.driverStatus,
       isAvailable: user.isAvailable,
@@ -132,10 +140,10 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
+    user.phone = req.body.phone || user.phone; // Mise à jour du téléphone possible
 
     if (req.body.password) {
       user.password = req.body.password; 
-      // Le middleware pre('save') détectera le changement et hachera
     }
 
     // Mise à jour de la position
@@ -162,6 +170,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
+      phone: updatedUser.phone,
       role: updatedUser.role,
       driverStatus: updatedUser.driverStatus,
       isAvailable: updatedUser.isAvailable,
@@ -220,6 +229,7 @@ const updateUser = asyncHandler(async (req, res) => {
   if (user) {
     user.name = req.body.name || user.name;
     user.email = req.body.email || user.email;
+    user.phone = req.body.phone || user.phone;
     user.role = req.body.role || user.role;
     
     if (req.body.driverStatus) {
@@ -232,6 +242,7 @@ const updateUser = asyncHandler(async (req, res) => {
       _id: updatedUser._id,
       name: updatedUser.name,
       email: updatedUser.email,
+      phone: updatedUser.phone,
       role: updatedUser.role,
       driverStatus: updatedUser.driverStatus,
     });

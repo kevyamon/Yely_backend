@@ -13,13 +13,20 @@ const userSchema = mongoose.Schema(
       required: true,
       unique: true,
     },
+    // AJOUT DU CHAMP PHONE
+    phone: {
+      type: String,
+      required: true, 
+      unique: true,
+    },
     password: {
       type: String,
       required: true,
     },
     role: {
       type: String,
-      enum: ['user', 'driver', 'admin', 'superadmin'],
+      // AJOUT DE 'rider' dans l'enum pour accepter le payload du frontend
+      enum: ['user', 'rider', 'driver', 'admin', 'superadmin'],
       default: 'user',
     },
     // Champs spécifiques aux chauffeurs
@@ -92,12 +99,10 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 
 // Middleware pour hacher le mot de passe avant de sauvegarder
 userSchema.pre('save', async function (next) {
-  // CORRECTION CRITIQUE : Si le mot de passe n'est pas modifié, on SORT IMMÉDIATEMENT.
   if (!this.isModified('password')) {
     return next();
   }
 
-  // Sinon, on génère un sel et on hache
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();

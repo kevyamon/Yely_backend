@@ -54,34 +54,28 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// --- CONFIGURATION CORS DYNAMIQUE ---
-// On transforme la chaîne "url1,url2" en un vrai tableau [url1, url2]
-const envOrigins = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.split(',') : [];
-
+// --- CONFIGURATION CORS BLINDÉE (MODIFICATION ICI) ---
 const allowedOrigins = [
-  ...envOrigins,                       // Les URLs de Render (localhost et IP mobile)
+  process.env.FRONTEND_URL,          // Ton .env
   'https://yely-frontend.onrender.com', // Ton Front en Prod
-  'http://localhost:5173',             // Vite Local
-  'http://localhost:3000'              // Autre local
+  'http://localhost:5173',           // Vite Local
+  'http://localhost:3000'            // Autre local
 ];
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Autoriser les requêtes sans origine (Mobile Apps, Postman, etc.)
+    // Autoriser les requêtes sans origine (Mobile Apps, Postman, Curl)
     if (!origin) return callback(null, true);
     
-    // Nettoyage de l'origine reçue (parfois des slashs de fin traînent)
-    const formattedOrigin = origin.replace(/\/$/, "");
-
-    if (allowedOrigins.includes(formattedOrigin) || allowedOrigins.includes(origin)) {
+    // Vérifier si l'origine est dans la liste
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
       return callback(null, true);
     } else {
-      console.log('❌ Bloqué par CORS. Origine reçue :', origin);
-      console.log('✅ Origines autorisées actuellement :', allowedOrigins);
+      console.log('Bloqué par CORS:', origin); // Log pour débugger si besoin
       return callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true,
+  credentials: true, // INDISPENSABLE pour les cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
 };
@@ -93,7 +87,7 @@ const server = http.createServer(app);
 // Configuration Socket.IO alignée avec CORS
 const io = new Server(server, {
   cors: {
-    origin: corsOptions.origin, 
+    origin: corsOptions.origin, // On réutilise la même logique
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -116,11 +110,12 @@ if (!fs.existsSync(uploadDir)){
     console.log('📁 Dossier uploads créé avec succès.');
 }
 
-// --- ROUTES ---
+// --- TES ROUTES ORIGINALES (INCHANGÉES) ---
 app.use('/api/users', userRoutes);
 app.use('/api/rides', rideRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
+// Attention : Tu avais 'subscription' au singulier ici, je garde TA version
 app.use('/api/subscription', subscriptionRoutes); 
 app.use('/api/admin/validations', adminValidationRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);

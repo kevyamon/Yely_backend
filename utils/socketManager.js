@@ -1,7 +1,6 @@
 // backend/utils/socketManager.js
 import { Server } from 'socket.io';
 import User from '../models/userModel.js';
-import Ride from '../models/rideModel.js';
 
 const socketManager = {
   io: null,
@@ -27,21 +26,21 @@ const socketManager = {
         }
       });
 
-      // 2. REJOINDRE LA ROOM CHAUFFEUR (CRITIQUE pour recevoir les courses)
-      // C'est l'événement qui manquait dans ton fichier
+      // ============================================================
+      // 🚨 C'EST ICI LA CORRECTION CRITIQUE QUI MANQUAIT 🚨
+      // ============================================================
       socket.on('join_driver_room', async ({ driverId }) => {
         if (!driverId) return;
         
-        // Le chauffeur rejoint sa room ID spécifique (pour recevoir les offres directes)
+        // Le chauffeur rejoint sa room ID spécifique (pour les offres directes)
         socket.join(driverId);
-        // Il rejoint aussi le canal global 'drivers' (pour les broadcasts)
+        // Il rejoint aussi le canal global 'drivers' (pour les broadcasts généraux)
         socket.join('drivers'); 
         
         console.log(`🚖 Chauffeur ${driverId} a rejoint le canal 'drivers'.`);
 
         try {
-            // On s'assure qu'il est bien marqué "Disponible" et "En ligne"
-            // C'est INDISPENSABLE pour que la recherche $near du rideController le trouve
+            // On force le statut "Disponible" pour qu'il soit vu par la recherche géo
             await User.updateOne(
                 { _id: driverId }, 
                 { $set: { isAvailable: true, isOnline: true } }
@@ -50,11 +49,12 @@ const socketManager = {
             console.error("Erreur update driver status:", error);
         }
       });
+      // ============================================================
 
       // 3. MISE À JOUR POSITION (Indispensable pour le Geo-Search)
       socket.on('update_location', async (data) => {
-        // data: { userId, lat, lng, role }
-        const { userId, lat, lng, role } = data;
+        // data: { userId, lat, lng }
+        const { userId, lat, lng } = data;
         
         if (!userId || !lat || !lng) return;
 
@@ -65,24 +65,21 @@ const socketManager = {
                     $set: { 
                         currentLocation: {
                             type: 'Point',
-                            coordinates: [lng, lat] // Mongo: [Long, Lat]
+                            coordinates: [lng, lat] // Mongo stocke [Longitude, Latitude]
                         },
-                        // IMPORTANT : On réaffirme qu'il est dispo à chaque mouvement
-                        // Sinon un chauffeur qui bouge pourrait devenir invisible si son statut saute
+                        // On réaffirme qu'il est dispo à chaque mouvement
                         isAvailable: true 
                     }
                 }
             );
         } catch (error) {
-            // Silent fail pour perf
+            // Silent fail
         }
       });
 
-      socket.on('disconnect', async () => {
+      socket.on('disconnect', () => {
         console.log(`❌ Déconnexion Socket: ${socket.id}`);
-        // Note: Pour gérer le offline, il faudrait mapper socket.id -> userId
       });
-
     });
   },
 
